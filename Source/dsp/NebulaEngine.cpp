@@ -72,7 +72,7 @@ namespace
     // Loop gain at full regeneration. Comfortably over unity: it has to outrun the
     // interpolator and modulation losses that drag a nominally infinite tail downward
     // over minutes, and still have something left over to build with.
-    constexpr float kRegenGain       = 1.038f;
+    constexpr float kRegenGain       = 1.052f;
 
     // The governor is NOT what keeps this safe - the soft clipper inside the loop is,
     // and it bounds every line unconditionally. The governor exists only so a
@@ -88,15 +88,29 @@ namespace
     constexpr float kGovernorFloor   = 0.90f;
 
     constexpr float kEnergyTimeSec   = 0.35f;   // how fast the governor sees a change
-    constexpr float kRegTimeSec      = 4.0f;    // how fast it acts on one
+    constexpr float kRegTimeSec      = 3.0f;    // how fast it acts on one
+
+    /** Size, mapped logarithmically from a tight room to lines long enough that the
+        network stops being a reverb and becomes a multi-tap delay: 90 ms x 6 is well
+        over half a second per line, so a single note comes back as audible, separable
+        repeats rather than a wash. Wound up with Feedback and Diffusion low, that is
+        the "one ping and it is still going when everyone has gone home" setting, and it
+        needs no separate delay section - these are already delay lines. */
+    inline float sizeToScale (float size) noexcept
+    {
+        return 0.15f * std::pow (40.0f, clamp (size, 0.0f, 1.0f));
+    }
+
+    constexpr float kMaxSizeScale = 6.0f;
 }
 
 void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
 {
     sr = sampleRate;
 
-    // Longest line, plus room for size scaling and both modulators.
-    const auto maxLineSamples = (int) (0.36 * sr) + 64;
+    // Longest line at maximum size, plus room for both modulators on top.
+    const auto longestMs = kBaseMs[kNumLines - 1] * kMaxSizeScale + kMaxModMs + kMaxDriftMs;
+    const auto maxLineSamples = (int) (longestMs * 0.001 * sr) + 64;
 
     Xorshift rng (0x5eed57a4u);
 
@@ -131,7 +145,7 @@ void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
 
     constexpr float fast = 12.0f, slow = 60.0f;
     smPreDelay  .prepare (sr, 120.0f, params.preDelayMs * 0.001f * (float) sr);
-    smSizeScale .prepare (sr, slow,   0.15f + 1.85f * params.size);
+    smSizeScale .prepare (sr, slow,   sizeToScale (params.size));
     smDecay     .prepare (sr, slow,   params.decay);
     smMix       .prepare (sr, fast,   params.mix);
     smWidth     .prepare (sr, fast,   params.width);
@@ -198,7 +212,7 @@ void NebulaEngine::updateTargets() noexcept
     const auto frozen = params.freeze;
 
     smPreDelay  .setTarget (clamp (params.preDelayMs, 0.0f, kMaxPreDelayMs) * 0.001f * (float) sr);
-    smSizeScale .setTarget (0.15f + 1.85f * params.size);
+    smSizeScale .setTarget (sizeToScale (params.size));
     smDecay     .setTarget (params.decay);
     smMix       .setTarget (params.mix);
     smWidth     .setTarget (params.width);
@@ -259,24 +273,28 @@ void NebulaEngine::updateControlRate() noexcept
         }
     }
 
+    // The shimmer path injects energy of its own. Trading a little of the direct
+    // feedback for it keeps the overall decay roughly where the knob says it is.
+    //
+    // This applies to the DECAY gain only, and must stay on this side of the blend
+    // below. Applied afterwards it also scaled the regenerated gain, so 30 % shimmer
+    // turned a loop gain of 1.038 into 0.945 and the network died in seconds no matter
+    // where Feedback was set - while a test with shimmer at zero saw nothing wrong.
+    const auto shimmerComp = 1.0f - 0.30f * shimmer;
+
+    for (int i = 0; i < kNumLines; ++i)
+        feedback[i] = std::min (feedback[i] * shimmerComp, 1.0f);
+
     // ---- regeneration -------------------------------------------------------
     // Feedback pulls the loop gain away from whatever the decay curve asked for and up
     // to just above unity, where the network sustains indefinitely and still takes new
     // input - which is the difference between this and Freeze, and the reason it can be
     // left running for hours. The governor only ever trims the regenerated share, so at
-    // 0 % feedback the decay behaviour below is untouched, bit for bit.
+    // 0 % feedback the decay behaviour above is untouched, bit for bit.
     const auto governed = (1.0f - regen) + regen * regGain;
 
     for (int i = 0; i < kNumLines; ++i)
         feedback[i] = (feedback[i] * (1.0f - regen) + kRegenGain * regen) * governed;
-
-    // The shimmer path injects energy of its own. Trading a little of the direct
-    // feedback for it keeps the overall decay roughly where the knob says it is.
-    const auto shimmerComp = 1.0f - 0.30f * shimmer;
-    const auto ceiling = 1.0f + (kRegenGain - 1.0f) * regen;
-
-    for (int i = 0; i < kNumLines; ++i)
-        feedback[i] = std::min (feedback[i] * shimmerComp, ceiling);
 
     // ---- loop filters -------------------------------------------------------
     // Frozen, these open up: a damping filter inside a unity-gain loop is still a
@@ -295,7 +313,9 @@ void NebulaEngine::updateControlRate() noexcept
 
     // ---- diffusion ----------------------------------------------------------
     const auto apGain = 0.78f * diffusion;
-    const auto apScale = 0.45f + 0.55f * sizeScale;
+    // Capped: the diffusers are allocated at twice their nominal length, and past
+    // about this much scaling they stop diffusing and start echoing anyway.
+    const auto apScale = 0.45f + 0.55f * std::min (sizeScale, 2.5f);
 
     for (int k = 0; k < 4; ++k)
     {

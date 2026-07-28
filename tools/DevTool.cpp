@@ -650,6 +650,67 @@ int runCheck()
         expect (on > off * 4.0f, "feedback demonstrably outlasts the decay curve alone");
     }
 
+    // ---- 16. one note, still going five minutes later ------------------------
+    // The scenario the feature exists for: pluck a string once and walk away. Note the
+    // shimmer setting - at 30 % the shimmer compensation used to multiply the
+    // regenerated loop gain down to 0.945 and the whole thing died in seconds, and the
+    // tests above never saw it because they all run with shimmer at zero.
+    {
+        neutral (proc);
+        setParam (proc, size, 92.0f);
+        setParam (proc, decay, 100.0f);
+        setParam (proc, feedback, 100.0f);
+        setParam (proc, damping, 44.0f);
+        setParam (proc, highCut, 8500.0f);
+        setParam (proc, lowCut, 55.0f);
+        setParam (proc, shimmer, 30.0f);
+        setParam (proc, diffusion, 30.0f);
+        proc.reset();
+
+        // 40 ms of plucked 220 Hz and nothing else. A tiny amount of energy compared to
+        // the three seconds of noise the other test uses - the entire question here is
+        // whether that is enough to get the network going.
+        juce::AudioBuffer<float> ping (2, (int) (kSampleRate * 0.5));
+        ping.clear();
+
+        for (int n = 0; n < (int) (kSampleRate * 0.04); ++n)
+        {
+            const auto env = std::exp (-(float) n / (float) (kSampleRate * 0.012));
+            const auto v = 0.5f * env * (float) std::sin (2.0 * juce::MathConstants<double>::pi
+                                                              * 220.0 * (double) n / kSampleRate);
+            ping.setSample (0, n, v);
+            ping.setSample (1, n, v);
+        }
+
+        runThrough (proc, ping);
+
+        juce::Array<float> perSecond;
+        juce::AudioBuffer<float> second (2, (int) kSampleRate);
+        auto finite = true;
+
+        for (int t = 0; t < 300; ++t)
+        {
+            second.clear();
+            runThrough (proc, second);
+            const auto s = analyse (second);
+            perSecond.add (s.rms);
+            finite = finite && s.finite;
+        }
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        std::cout << "  single ping at 1/10/30/60/180/300 s: ";
+        for (auto sec : { 1, 10, 30, 60, 180, 300 })
+            std::cout << juce::String (db (perSecond[sec - 1]), 1) << " ";
+        std::cout << "dBFS" << std::endl;
+
+        expect (finite, "one ping stays finite for five minutes");
+        expect (db (perSecond[299]) > -35.0f,
+                "one ping is still clearly audible five minutes later");
+        expect (db (perSecond[299]) - db (perSecond[9]) > -12.0f,
+                "one ping does not quietly fade away over five minutes");
+    }
+
     // ---- CPU cost ------------------------------------------------------------
     {
         constexpr double seconds = 60.0;

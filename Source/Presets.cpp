@@ -98,6 +98,16 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::detune, 26 }, { pid::modRate, 0.06f }, { pid::modDepth, 48 },
             { pid::collapse, 14 }, { pid::mass, 18 }, { pid::width, 155 }, { pid::output, -4 },
             { pid::freeze, 0 } } },
+        // One note and walk away. Long lines, low diffusion so the repeats stay
+        // separable rather than smearing into a wash, and feedback at maximum.
+        { "Light Echo", {
+            { pid::mix, 68 }, { pid::preDelay, 0 }, { pid::size, 92 }, { pid::decay, 100 },
+            { pid::feedback, 100 },
+            { pid::damping, 32 }, { pid::lowCut, 60 }, { pid::highCut, 9500 },
+            { pid::diffusion, 26 }, { pid::shimmer, 22 }, { pid::shimPitch, 12 },
+            { pid::detune, 18 }, { pid::modRate, 0.05f }, { pid::modDepth, 34 },
+            { pid::collapse, 10 }, { pid::mass, 12 }, { pid::width, 150 }, { pid::output, -5 },
+            { pid::freeze, 0 } } },
     };
 
 

@@ -30,8 +30,13 @@ than 1.5 dB of loss over twenty seconds.
 gain away from the decay curve and up past unity, so the network regenerates rather than
 fades — and unlike Freeze it keeps the input open, so new material lands on top of what
 is already circulating. Feed it almost anything and it grows into a full wash and stays
-there: at 95 % feedback the measured level climbs from −21 dBFS to about −5 dBFS RMS
-within half a minute and holds inside a few dB for as long as you leave it.
+there. One 40 ms plucked note, at maximum feedback, measured second by second:
+
+| after | 1 s | 10 s | 30 s | 60 s | 180 s | 300 s |
+|---|---|---|---|---|---|---|
+| level | −26.9 | −17.6 | −7.4 | −8.3 | −8.2 | −8.0 dBFS |
+
+It blooms over the first half minute and then simply stays there.
 
 What keeps that safe is the soft clipper inside the loop, which bounds every line
 unconditionally. The governor on top of it is not a safety net and not a leveller — it is
@@ -57,13 +62,20 @@ dry path is bit-identical at 0 % mix.
 | **Collapse** | Collapse · Mass |
 | **Emission** | Freeze · Feedback · Mix · Output |
 
+**Size** is mapped logarithmically and runs a long way past room-sized: at the top the
+eight lines are over half a second each. That is long enough that the network stops
+behaving like a reverb and starts behaving like a multi-tap delay, which is why there is
+no separate delay section — these were always delay lines, they just needed permission to
+be long. Size high, **Diffusion** low and **Feedback** up is the one-note-and-walk-away
+setting; the *Light Echo* preset is exactly that.
+
 **Detune** does double duty: it spreads the two shimmer voices apart in cents, and it
 sets the depth of a very slow independent drift on each delay line. That second half is
 what stops a long tail sounding like a static chord.
 
-Nine factory presets span the range, from *Whisper of Light* to *Black Hole Roar*, and
-they are exposed as host programs as well as through the panel. *Heat Death* is the one
-meant to be started and left alone.
+Ten factory presets span the range, from *Whisper of Light* to *Black Hole Roar*, and
+they are exposed as host programs as well as through the panel. *Heat Death* and
+*Light Echo* are the two meant to be started and left alone.
 
 The star in the middle is driven by the controls and by the signal: its colour is the
 loop's temperature, the accretion disk grows with **Mass**, the disk stops turning when
@@ -155,8 +167,9 @@ Verified on every push, on both platforms, by `devtool check` — and CI additio
 - shimmer genuinely puts energy an octave above the source
 - freeze holds for twenty seconds inside 1.5 dB
 - feedback builds to a sustaining level and does not collapse in the half minute
-  after a loud passage, is still clearly audible five minutes later, and is provably
-  inert at 0 %
+  after a loud passage, and is provably inert at 0 %
+- a single 40 ms plucked note, with shimmer and damping engaged, is still within a few
+  dB of its peak five minutes later
 - nothing goes non-finite with every control at maximum, across 44.1–192 kHz and block
   sizes from 16 to 2048, in mono and in stereo
 - every parameter survives a state save/reload round-trip
