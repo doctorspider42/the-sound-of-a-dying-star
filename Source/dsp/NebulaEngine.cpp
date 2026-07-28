@@ -69,18 +69,26 @@ namespace
     constexpr float kMaxModMs        = 8.0f;
     constexpr float kMaxDriftMs      = 13.0f;
 
-    // Loop gain at full regeneration. Only just over unity - enough to outrun the
-    // interpolator and modulation losses that make a nominally infinite tail creep
-    // downward over minutes, and not so much that the governor has to fight it.
-    constexpr float kRegenGain       = 1.020f;
+    // Loop gain at full regeneration. Comfortably over unity: it has to outrun the
+    // interpolator and modulation losses that drag a nominally infinite tail downward
+    // over minutes, and still have something left over to build with.
+    constexpr float kRegenGain       = 1.038f;
 
-    // What the governor holds the circulating signal at, as a mean absolute value.
-    // Chosen so a regenerating network parks well below where the loop clipper starts
-    // to bite, leaving headroom for new material to land on top.
-    constexpr float kLoopTarget      = 0.042f;
+    // The governor is NOT what keeps this safe - the soft clipper inside the loop is,
+    // and it bounds every line unconditionally. The governor exists only so a
+    // regenerating network does not end up parked inside that clipper forever, sounding
+    // permanently saturated. So it is a ceiling, not a target: below it nothing happens
+    // at all, and feedback means feedback.
+    constexpr float kLoopCeiling     = 0.075f;
 
-    constexpr float kEnergyTimeSec   = 0.25f;   // how fast the governor sees a change
-    constexpr float kRegTimeSec      = 2.5f;    // how fast it acts on one
+    // Gentle ratio and a high floor. A governor that can pull the loop gain a long way
+    // down is a governor that can cut a tail short, which is the opposite of the point.
+    // At the floor the loop still rings for many seconds.
+    constexpr float kGovernorRatio   = 0.35f;
+    constexpr float kGovernorFloor   = 0.90f;
+
+    constexpr float kEnergyTimeSec   = 0.35f;   // how fast the governor sees a change
+    constexpr float kRegTimeSec      = 4.0f;    // how fast it acts on one
 }
 
 void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
@@ -221,13 +229,15 @@ void NebulaEngine::updateControlRate() noexcept
     const auto regen     = smFeedback.skip (kControlInterval);
 
     // ---- the governor -------------------------------------------------------
-    // Aim the circulating level at the target, and move toward that correction over
-    // seconds rather than milliseconds. Slow is the whole point: fast enough to catch
-    // a runaway, far too slow to hear as pumping. The floor stops it from strangling
-    // the network back to nothing if a transient briefly overshoots.
-    const auto desired = loopEnergy > kLoopTarget ? kLoopTarget / loopEnergy : 1.0f;
+    // Nothing at all below the ceiling. Above it, a fractional exponent rather than a
+    // straight ratio, so being twice too loud asks for a 26 % trim instead of a 50 %
+    // one - the network eases back into range over several seconds instead of being
+    // yanked, and a loud passage does not leave a hole behind it.
+    const auto over = loopEnergy / kLoopCeiling;
+    const auto desired = over > 1.0f ? std::pow (over, -kGovernorRatio) : 1.0f;
+
     regGain += (desired - regGain) * regCoeff;
-    regGain = clamp (regGain, 0.30f, 1.0f);
+    regGain = clamp (regGain, kGovernorFloor, 1.0f);
 
     // ---- feedback -----------------------------------------------------------
     // Per-line gain from a target RT60, so every line decays over the same time even

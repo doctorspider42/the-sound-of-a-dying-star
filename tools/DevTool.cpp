@@ -574,42 +574,50 @@ int runCheck()
         setParam (proc, feedback, 95.0f);
         proc.reset();
 
+        // Excited hard on purpose. A governor that overreacts to a loud passage is
+        // exactly what makes a "sustain forever" control die in the first few seconds,
+        // and it is invisible if the first measurement is taken a minute in - which is
+        // how the earlier version of this test passed while the thing collapsed audibly.
         juce::AudioBuffer<float> excite (2, (int) (kSampleRate * 3.0));
-        fillNoise (excite, 0.4f, 0, excite.getNumSamples());
+        fillNoise (excite, 0.7f, 0, excite.getNumSamples());
         runThrough (proc, excite);
 
-        // Five minutes of silence, measured in half-second windows a minute apart.
-        juce::Array<float> marks;
-        juce::AudioBuffer<float> minute (2, (int) (kSampleRate * 60.0));
+        juce::Array<float> perSecond;
+        juce::AudioBuffer<float> second (2, (int) kSampleRate);
         auto finite = true;
         auto worstPeak = 0.0f;
 
-        for (int m = 0; m < 5; ++m)
+        for (int t = 0; t < 300; ++t)
         {
-            minute.clear();
-            runThrough (proc, minute);
-
-            const auto s = analyse (minute, (int) (kSampleRate * 59.5), (int) (kSampleRate * 0.5));
-            marks.add (s.rms);
+            second.clear();
+            runThrough (proc, second);
+            const auto s = analyse (second);
+            perSecond.add (s.rms);
             finite = finite && s.finite;
-            worstPeak = juce::jmax (worstPeak, analyse (minute).peak);
+            worstPeak = juce::jmax (worstPeak, s.peak);
         }
 
-        std::cout << "  regenerating level by minute:";
-        for (auto v : marks)
-            std::cout << " " << juce::String (juce::Decibels::gainToDecibels (
-                                                  juce::jmax (1.0e-9f, v)), 1);
-        std::cout << " dBFS (peak " << worstPeak << ")" << std::endl;
+        auto at = [&perSecond] (int sec) { return perSecond[juce::jlimit (0, 299, sec)]; };
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
 
-        const auto first = marks[0], last = marks[4];
-        auto lowest = marks[0], highest = marks[0];
-        for (auto v : marks) { lowest = juce::jmin (lowest, v); highest = juce::jmax (highest, v); }
+        std::cout << "  regenerating level at 5/15/30/60/180/300 s: ";
+        for (auto sec : { 5, 15, 30, 60, 180, 300 })
+            std::cout << juce::String (db (at (sec - 1)), 1) << " ";
+        std::cout << "dBFS (peak " << worstPeak << ")" << std::endl;
+
+        auto loudest = 0.0f;
+        for (int t = 4; t < 300; ++t)
+            loudest = juce::jmax (loudest, perSecond[t]);
 
         expect (finite && worstPeak < 2.0f, "regenerating output stays finite and bounded");
-        expect (lowest > 0.002f, "still audible after five minutes of no input");
-        expect (juce::Decibels::gainToDecibels (highest / juce::jmax (1.0e-9f, lowest)) < 12.0f,
-                "the governor holds the level inside 12 dB across five minutes");
-        juce::ignoreUnused (first, last);
+
+        // The one that catches an over-eager governor: half a minute in, it must still
+        // be near where it was five seconds in, not a fraction of it.
+        expect (db (at (29)) - db (at (4)) > -10.0f,
+                "does not collapse in the first half minute after a loud passage");
+
+        expect (db (at (299)) > -30.0f, "still clearly audible after five minutes of silence");
+        expect (db (loudest) > -20.0f, "sustains at a level that can carry a track");
     }
 
     // ---- 15. feedback at zero changes nothing --------------------------------

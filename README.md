@@ -29,11 +29,17 @@ than 1.5 dB of loss over twenty seconds.
 **Feedback** is the one to reach for if you want to leave it running. It pulls the loop
 gain away from the decay curve and up past unity, so the network regenerates rather than
 fades — and unlike Freeze it keeps the input open, so new material lands on top of what
-is already circulating. Loop gain above one only accumulates, though, so a governor
-watches how much is going round and trims the regenerated share of the feedback to hold
-it at a target. It moves over seconds: fast enough to catch a runaway, far too slow to
-hear as pumping. Measured across five minutes of no input at 95 % feedback, the level
-stays inside 2.5 dB.
+is already circulating. Feed it almost anything and it grows into a full wash and stays
+there: at 95 % feedback the measured level climbs from −21 dBFS to about −5 dBFS RMS
+within half a minute and holds inside a few dB for as long as you leave it.
+
+What keeps that safe is the soft clipper inside the loop, which bounds every line
+unconditionally. The governor on top of it is not a safety net and not a leveller — it is
+a ceiling. Below the ceiling it does nothing at all and feedback means feedback; above it,
+a fractional exponent asks for a gentle trim rather than a proportional one, so a loud
+passage makes the network ease back and swell again over several seconds instead of
+leaving a hole. Its floor is deliberately high: a governor that can pull the loop gain a
+long way down is a governor that can cut a tail short, which is the opposite of the point.
 
 At 0 % the control is inert and the decay behaviour is untouched, which is what keeps
 sessions saved before it existed sounding the same.
@@ -148,8 +154,9 @@ Verified on every push, on both platforms, by `devtool check` — and CI additio
 - every control reaches the DSP, and the decay curve is monotonic
 - shimmer genuinely puts energy an octave above the source
 - freeze holds for twenty seconds inside 1.5 dB
-- feedback regenerates for five minutes of silence without fading or running away, and
-  is provably inert at 0 %
+- feedback builds to a sustaining level and does not collapse in the half minute
+  after a loud passage, is still clearly audible five minutes later, and is provably
+  inert at 0 %
 - nothing goes non-finite with every control at maximum, across 44.1–192 kHz and block
   sizes from 16 to 2048, in mono and in stereo
 - every parameter survives a state save/reload round-trip
