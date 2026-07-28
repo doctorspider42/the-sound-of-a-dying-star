@@ -31,7 +31,10 @@ jobs:
       # a command substitution whose exit status becomes the assignment's exit status -
       # and on Linux that status is 1, which under `set -e` kills the step before it
       # runs anything, with no output to explain why.
-      DEVTOOL: ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool${{ runner.os == 'Windows' && '.exe' || '' }}
+      #
+      # Keyed off matrix, not runner.os: the runner context does not exist at job level,
+      # and using it here makes GitHub reject the whole workflow before any job starts.
+      DEVTOOL: ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool${{ matrix.label == 'windows' && '.exe' || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -75,7 +78,10 @@ jobs:
       - name: pluginval
         if: runner.os == 'Linux'
         run: |
-          curl -sSL -o pluginval.zip \
+          # -f, so an HTTP error is an error. Without it curl exits 0 having written the
+          # error page to pluginval.zip, and the failure surfaces as a puzzling unzip
+          # message several lines later.
+          curl -fsSL -o pluginval.zip \
             https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_Linux.zip
           unzip -q pluginval.zip
           chmod +x pluginval
