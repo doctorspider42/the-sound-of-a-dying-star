@@ -26,6 +26,13 @@ jobs:
           - { os: ubuntu-22.04, label: linux,   package: dying-star-linux-x86_64.tar.gz }
           - { os: windows-2022, label: windows, package: dying-star-windows-x64.zip }
 
+    env:
+      # Resolved by GitHub, not by the shell. Working the .exe suffix out in bash needs
+      # a command substitution whose exit status becomes the assignment's exit status -
+      # and on Linux that status is 1, which under `set -e` kills the step before it
+      # runs anything, with no output to explain why.
+      DEVTOOL: ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool${{ runner.os == 'Windows' && '.exe' || '' }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,13 +61,13 @@ jobs:
       # Runs before packaging, so a red build cannot publish.
       - name: DSP checks
         shell: bash
-        run: ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool$([ "$RUNNER_OS" = Windows ] && echo .exe) check
+        run: |
+          "$DEVTOOL" check
 
       - name: Panel smoke test
         shell: bash
         run: |
-          tool=./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool$([ "$RUNNER_OS" = Windows ] && echo .exe)
-          "$tool" shot panel-${{ matrix.label }}.png
+          "$DEVTOOL" shot panel-${{ matrix.label }}.png
           test -s panel-${{ matrix.label }}.png
 
       # Without xvfb-run, pluginval silently skips every editor test and hands back a
