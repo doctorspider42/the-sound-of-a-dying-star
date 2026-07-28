@@ -65,6 +65,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     layout.add (percent (pid::size, "Size", 60.0f));
     layout.add (percent (pid::decay, "Decay", 65.0f));
+
+    // Defaults to zero: at 0 % the engine behaves exactly as it did before this
+    // control existed, so no saved session changes character on upgrade.
+    layout.add (percent (pid::feedback, "Feedback", 0.0f));
     layout.add (percent (pid::damping, "Damping", 40.0f));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -148,6 +152,7 @@ void ParamPointers::attach (juce::AudioProcessorValueTreeState& state)
     preDelay  = get (pid::preDelay);
     size      = get (pid::size);
     decay     = get (pid::decay);
+    feedback  = get (pid::feedback);
     damping   = get (pid::damping);
     lowCut    = get (pid::lowCut);
     highCut   = get (pid::highCut);

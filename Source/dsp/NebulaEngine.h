@@ -43,6 +43,7 @@ struct ReverbParams
     float preDelayMs   = 40.0f;   // 0..500
     float size         = 0.6f;    // 0..1
     float decay        = 0.65f;   // 0..1  (>= kInfiniteDecay means never)
+    float feedback     = 0.0f;    // 0..1  regeneration on top of decay
     float damping      = 0.4f;    // 0..1
     float lowCutHz     = 60.0f;
     float highCutHz    = 12000.0f;
@@ -109,6 +110,17 @@ private:
 
     Smoothed smPreDelay, smSizeScale, smDecay, smMix, smWidth, smOutput;
     Smoothed smShimmer, smMass, smDrive, smModDepth, smDriftDepth, smInput, smDiffusion;
+    Smoothed smFeedback;
+
+    // Regeneration needs a governor. Loop gain above unity is what lets the network
+    // sustain and keep accepting new material for hours instead of fading, but left
+    // alone it also means energy only ever accumulates - into the clipper, and from
+    // there into mush. These track how much is circulating and trim the regenerated
+    // part of the feedback to hold it at a target.
+    float loopEnergy = 0.0f;
+    float regGain = 1.0f;
+    float energyCoeff = 0.0f;
+    float regCoeff = 0.0f;
 
     int   controlCounter = 0;
     float wetLevel = 0.0f;

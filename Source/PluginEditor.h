@@ -73,7 +73,7 @@ private:
     std::unique_ptr<CosmicKnob> kDamping, kLowCut, kHighCut, kWidth;
     std::unique_ptr<CosmicKnob> kShimmer, kPitch, kDetune, kModRate, kModDepth;
     std::unique_ptr<CosmicKnob> kCollapse, kMass;
-    std::unique_ptr<CosmicKnob> kMix, kOutput;
+    std::unique_ptr<CosmicKnob> kFeedback, kMix, kOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DyingStarEditor)
 };

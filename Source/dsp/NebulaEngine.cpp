@@ -68,6 +68,19 @@ namespace
     constexpr float kMaxPreDelayMs   = 500.0f;
     constexpr float kMaxModMs        = 8.0f;
     constexpr float kMaxDriftMs      = 13.0f;
+
+    // Loop gain at full regeneration. Only just over unity - enough to outrun the
+    // interpolator and modulation losses that make a nominally infinite tail creep
+    // downward over minutes, and not so much that the governor has to fight it.
+    constexpr float kRegenGain       = 1.020f;
+
+    // What the governor holds the circulating signal at, as a mean absolute value.
+    // Chosen so a regenerating network parks well below where the loop clipper starts
+    // to bite, leaving headroom for new material to land on top.
+    constexpr float kLoopTarget      = 0.042f;
+
+    constexpr float kEnergyTimeSec   = 0.25f;   // how fast the governor sees a change
+    constexpr float kRegTimeSec      = 2.5f;    // how fast it acts on one
 }
 
 void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
@@ -122,6 +135,10 @@ void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
     smDriftDepth.prepare (sr, slow,   0.0f);
     smInput     .prepare (sr, 40.0f,  kInputTrim);
     smDiffusion .prepare (sr, slow,   params.diffusion);
+    smFeedback  .prepare (sr, slow,   params.feedback);
+
+    energyCoeff = 1.0f - std::exp (-1.0f / (kEnergyTimeSec * (float) sr));
+    regCoeff    = 1.0f - std::exp (-(float) kControlInterval / (kRegTimeSec * (float) sr));
 
     reset();
 }
@@ -159,11 +176,13 @@ void NebulaEngine::reset() noexcept
 
     for (auto* s : { &smPreDelay, &smSizeScale, &smDecay, &smMix, &smWidth, &smOutput,
                      &smShimmer, &smMass, &smDrive, &smModDepth, &smDriftDepth, &smInput,
-                     &smDiffusion })
+                     &smDiffusion, &smFeedback })
         s->snap();
 
     controlCounter = 0;
     wetLevel = brightness = levelFollower = brightFollower = 0.0f;
+    loopEnergy = 0.0f;
+    regGain = 1.0f;
 }
 
 void NebulaEngine::updateTargets() noexcept
@@ -179,6 +198,7 @@ void NebulaEngine::updateTargets() noexcept
     smShimmer   .setTarget (params.shimmer);
     smMass      .setTarget (params.mass);
     smDiffusion .setTarget (params.diffusion);
+    smFeedback  .setTarget (params.feedback);
     smInput     .setTarget (frozen ? 0.0f : kInputTrim);
     smDrive     .setTarget (1.0f + 11.0f * params.collapse);
     smModDepth  .setTarget (params.modDepth * kMaxModMs * 0.001f * (float) sr
@@ -198,6 +218,16 @@ void NebulaEngine::updateControlRate() noexcept
     // control that looks connected and does nothing.
     const auto decay     = smDecay.skip (kControlInterval);
     const auto diffusion = smDiffusion.skip (kControlInterval);
+    const auto regen     = smFeedback.skip (kControlInterval);
+
+    // ---- the governor -------------------------------------------------------
+    // Aim the circulating level at the target, and move toward that correction over
+    // seconds rather than milliseconds. Slow is the whole point: fast enough to catch
+    // a runaway, far too slow to hear as pumping. The floor stops it from strangling
+    // the network back to nothing if a transient briefly overshoots.
+    const auto desired = loopEnergy > kLoopTarget ? kLoopTarget / loopEnergy : 1.0f;
+    regGain += (desired - regGain) * regCoeff;
+    regGain = clamp (regGain, 0.30f, 1.0f);
 
     // ---- feedback -----------------------------------------------------------
     // Per-line gain from a target RT60, so every line decays over the same time even
@@ -219,12 +249,24 @@ void NebulaEngine::updateControlRate() noexcept
         }
     }
 
+    // ---- regeneration -------------------------------------------------------
+    // Feedback pulls the loop gain away from whatever the decay curve asked for and up
+    // to just above unity, where the network sustains indefinitely and still takes new
+    // input - which is the difference between this and Freeze, and the reason it can be
+    // left running for hours. The governor only ever trims the regenerated share, so at
+    // 0 % feedback the decay behaviour below is untouched, bit for bit.
+    const auto governed = (1.0f - regen) + regen * regGain;
+
+    for (int i = 0; i < kNumLines; ++i)
+        feedback[i] = (feedback[i] * (1.0f - regen) + kRegenGain * regen) * governed;
+
     // The shimmer path injects energy of its own. Trading a little of the direct
     // feedback for it keeps the overall decay roughly where the knob says it is.
     const auto shimmerComp = 1.0f - 0.30f * shimmer;
+    const auto ceiling = 1.0f + (kRegenGain - 1.0f) * regen;
 
     for (int i = 0; i < kNumLines; ++i)
-        feedback[i] = std::min (feedback[i] * shimmerComp, 1.0f);
+        feedback[i] = std::min (feedback[i] * shimmerComp, ceiling);
 
     // ---- loop filters -------------------------------------------------------
     // Frozen, these open up: a damping filter inside a unity-gain loop is still a
@@ -321,6 +363,10 @@ void NebulaEngine::process (float* left, float* right, int numSamples) noexcept
 
         // ---- pitched feedback paths ------------------------------------------
         const auto sendMono = 0.5f * (wetL + wetR);
+
+        // What the governor watches: the signal actually circulating, read before the
+        // output trim so the reading does not move when the user changes the output.
+        loopEnergy += energyCoeff * (std::abs (sendMono) - loopEnergy);
         const auto shimGain = smShimmer.next() * 0.78f;
         const auto massGain = smMass.next() * 0.62f;
 

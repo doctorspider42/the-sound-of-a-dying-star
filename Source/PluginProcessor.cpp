@@ -76,6 +76,7 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.preDelayMs   = params.preDelay->load();
     p.size         = params.size->load()      * 0.01f;
     p.decay        = params.decay->load()     * 0.01f;
+    p.feedback     = params.feedback->load()  * 0.01f;
     p.damping      = params.damping->load()   * 0.01f;
     p.lowCutHz     = params.lowCut->load();
     p.highCutHz    = params.highCut->load();

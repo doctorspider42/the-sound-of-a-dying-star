@@ -25,7 +25,7 @@ const std::vector<Preset>& getFactoryPresets()
     static const std::vector<Preset> presets =
     {
         { "Distant Nebula", {
-            { pid::mix, 38 }, { pid::preDelay, 60 }, { pid::size, 62 }, { pid::decay, 58 },
+            { pid::mix, 38 }, { pid::preDelay, 60 }, { pid::size, 62 }, { pid::decay, 58 }, { pid::feedback, 0 },
             { pid::damping, 52 }, { pid::lowCut, 90 }, { pid::highCut, 9000 },
             { pid::diffusion, 74 }, { pid::shimmer, 22 }, { pid::shimPitch, 12 },
             { pid::detune, 9 }, { pid::modRate, 0.22f }, { pid::modDepth, 26 },
@@ -33,7 +33,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Cathedral of Ice", {
-            { pid::mix, 46 }, { pid::preDelay, 24 }, { pid::size, 78 }, { pid::decay, 74 },
+            { pid::mix, 46 }, { pid::preDelay, 24 }, { pid::size, 78 }, { pid::decay, 74 }, { pid::feedback, 0 },
             { pid::damping, 22 }, { pid::lowCut, 160 }, { pid::highCut, 16000 },
             { pid::diffusion, 86 }, { pid::shimmer, 44 }, { pid::shimPitch, 12 },
             { pid::detune, 6 }, { pid::modRate, 0.15f }, { pid::modDepth, 18 },
@@ -41,7 +41,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Whisper of Light", {
-            { pid::mix, 24 }, { pid::preDelay, 12 }, { pid::size, 40 }, { pid::decay, 44 },
+            { pid::mix, 24 }, { pid::preDelay, 12 }, { pid::size, 40 }, { pid::decay, 44 }, { pid::feedback, 0 },
             { pid::damping, 60 }, { pid::lowCut, 120 }, { pid::highCut, 7500 },
             { pid::diffusion, 68 }, { pid::shimmer, 14 }, { pid::shimPitch, 19 },
             { pid::detune, 4 }, { pid::modRate, 0.4f }, { pid::modDepth, 14 },
@@ -49,7 +49,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Solar Wind", {
-            { pid::mix, 52 }, { pid::preDelay, 140 }, { pid::size, 70 }, { pid::decay, 72 },
+            { pid::mix, 52 }, { pid::preDelay, 140 }, { pid::size, 70 }, { pid::decay, 72 }, { pid::feedback, 0 },
             { pid::damping, 38 }, { pid::lowCut, 70 }, { pid::highCut, 13000 },
             { pid::diffusion, 62 }, { pid::shimmer, 34 }, { pid::shimPitch, 7 },
             { pid::detune, 46 }, { pid::modRate, 0.9f }, { pid::modDepth, 58 },
@@ -57,7 +57,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Supernova", {
-            { pid::mix, 68 }, { pid::preDelay, 30 }, { pid::size, 88 }, { pid::decay, 88 },
+            { pid::mix, 68 }, { pid::preDelay, 30 }, { pid::size, 88 }, { pid::decay, 88 }, { pid::feedback, 0 },
             { pid::damping, 26 }, { pid::lowCut, 110 }, { pid::highCut, 17000 },
             { pid::diffusion, 82 }, { pid::shimmer, 78 }, { pid::shimPitch, 12 },
             { pid::detune, 22 }, { pid::modRate, 0.5f }, { pid::modDepth, 44 },
@@ -65,7 +65,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Event Horizon", {
-            { pid::mix, 76 }, { pid::preDelay, 0 }, { pid::size, 92 }, { pid::decay, 100 },
+            { pid::mix, 76 }, { pid::preDelay, 0 }, { pid::size, 92 }, { pid::decay, 100 }, { pid::feedback, 0 },
             { pid::damping, 30 }, { pid::lowCut, 45 }, { pid::highCut, 11000 },
             { pid::diffusion, 90 }, { pid::shimmer, 40 }, { pid::shimPitch, 12 },
             { pid::detune, 30 }, { pid::modRate, 0.12f }, { pid::modDepth, 34 },
@@ -73,7 +73,7 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 1 } } },
 
         { "Gravity Well", {
-            { pid::mix, 64 }, { pid::preDelay, 80 }, { pid::size, 84 }, { pid::decay, 86 },
+            { pid::mix, 64 }, { pid::preDelay, 80 }, { pid::size, 84 }, { pid::decay, 86 }, { pid::feedback, 0 },
             { pid::damping, 62 }, { pid::lowCut, 25 }, { pid::highCut, 4200 },
             { pid::diffusion, 78 }, { pid::shimmer, 10 }, { pid::shimPitch, -12 },
             { pid::detune, 34 }, { pid::modRate, 0.08f }, { pid::modDepth, 40 },
@@ -81,13 +81,25 @@ const std::vector<Preset>& getFactoryPresets()
             { pid::freeze, 0 } } },
 
         { "Black Hole Roar", {
-            { pid::mix, 92 }, { pid::preDelay, 0 }, { pid::size, 96 }, { pid::decay, 97 },
+            { pid::mix, 92 }, { pid::preDelay, 0 }, { pid::size, 96 }, { pid::decay, 97 }, { pid::feedback, 0 },
             { pid::damping, 74 }, { pid::lowCut, 20 }, { pid::highCut, 2600 },
             { pid::diffusion, 94 }, { pid::shimmer, 26 }, { pid::shimPitch, -12 },
             { pid::detune, 68 }, { pid::modRate, 0.05f }, { pid::modDepth, 66 },
             { pid::collapse, 88 }, { pid::mass, 92 }, { pid::width, 70 }, { pid::output, -8 },
             { pid::freeze, 0 } } },
+        // The one meant to be left running. Feedback past unity, so the network
+        // regenerates instead of decaying, and the governor holds the level while new
+        // material keeps landing on top of what is already circulating.
+        { "Heat Death", {
+            { pid::mix, 70 }, { pid::preDelay, 120 }, { pid::size, 90 }, { pid::decay, 92 },
+            { pid::feedback, 88 },
+            { pid::damping, 44 }, { pid::lowCut, 55 }, { pid::highCut, 8500 },
+            { pid::diffusion, 88 }, { pid::shimmer, 30 }, { pid::shimPitch, 12 },
+            { pid::detune, 26 }, { pid::modRate, 0.06f }, { pid::modDepth, 48 },
+            { pid::collapse, 14 }, { pid::mass, 18 }, { pid::width, 155 }, { pid::output, -4 },
+            { pid::freeze, 0 } } },
     };
+
 
     return presets;
 }

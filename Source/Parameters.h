@@ -31,6 +31,7 @@ namespace pid
     inline constexpr const char* preDelay   = "predelay";
     inline constexpr const char* size       = "size";
     inline constexpr const char* decay      = "decay";
+    inline constexpr const char* feedback   = "feedback";
     inline constexpr const char* damping    = "damping";
     inline constexpr const char* lowCut     = "lowcut";
     inline constexpr const char* highCut    = "highcut";
@@ -60,6 +61,7 @@ struct ParamPointers
     std::atomic<float>* preDelay  = nullptr;
     std::atomic<float>* size      = nullptr;
     std::atomic<float>* decay     = nullptr;
+    std::atomic<float>* feedback  = nullptr;
     std::atomic<float>* damping   = nullptr;
     std::atomic<float>* lowCut    = nullptr;
     std::atomic<float>* highCut   = nullptr;

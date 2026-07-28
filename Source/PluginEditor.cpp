@@ -178,6 +178,9 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     kCollapse  = makeKnob (pid::collapse,  "Collapse",  skin::colour::collapse);
     kMass      = makeKnob (pid::mass,      "Mass",      skin::colour::collapse);
 
+    // Cyan rather than the panel's own accent: it belongs to the same family as
+    // Decay, and on this panel colour is what says what a control does.
+    kFeedback  = makeKnob (pid::feedback,  "Feedback",  gravity);
     kMix       = makeKnob (pid::mix,       "Mix",       master);
     kOutput    = makeKnob (pid::output,    "Output",    master, true);
 
@@ -343,10 +346,14 @@ void DyingStarEditor::layOutContent()
         auto freezeArea = body.removeFromLeft (268.0f);
         freeze.setBounds (freezeArea.withSizeKeepingCentre (252.0f, 58.0f).toNearestInt());
 
-        body.removeFromLeft (26.0f);
+        // Feedback sits with Freeze, not with Decay: these two are the controls that
+        // decide whether the thing ever stops, and they belong to each other.
+        body.removeFromLeft (20.0f);
+        layOutRow (body.removeFromLeft (128.0f), { kFeedback.get() }, 128.0f, 74.0f);
+        body.removeFromLeft (12.0f);
 
-        auto meterArea = body.removeFromLeft (368.0f);
-        tailMeter.setBounds (meterArea.withSizeKeepingCentre (368.0f, 44.0f).toNearestInt());
+        auto meterArea = body.removeFromLeft (268.0f);
+        tailMeter.setBounds (meterArea.withSizeKeepingCentre (268.0f, 44.0f).toNearestInt());
 
         layOutRow (body.removeFromRight (128.0f), { kOutput.get() }, 128.0f, 74.0f);
         layOutRow (body.removeFromRight (128.0f), { kMix.get() },    128.0f, 74.0f);

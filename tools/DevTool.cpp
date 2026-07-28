@@ -145,6 +145,7 @@ void neutral (Processor& proc)
     setParam (proc, preDelay, 0.0f);
     setParam (proc, size, 60.0f);
     setParam (proc, decay, 50.0f);
+    setParam (proc, feedback, 0.0f);
     setParam (proc, damping, 30.0f);
     setParam (proc, lowCut, 20.0f);
     setParam (proc, highCut, 20000.0f);
@@ -560,6 +561,85 @@ int runCheck()
                   << std::endl;
         expect (finite && worstPeak < 2.0f,
                 "stays finite and bounded with parameters sweeping every block");
+    }
+
+    // ---- 14. feedback sustains without running away --------------------------
+    // The point of the control: excite it once, then leave it alone for five minutes
+    // and come back to something still going, at roughly the level it was, neither
+    // faded out nor piled into the clipper. Both failure modes are one-liners in the
+    // engine and neither is audible in the first thirty seconds.
+    {
+        neutral (proc);
+        setParam (proc, decay, 90.0f);
+        setParam (proc, feedback, 95.0f);
+        proc.reset();
+
+        juce::AudioBuffer<float> excite (2, (int) (kSampleRate * 3.0));
+        fillNoise (excite, 0.4f, 0, excite.getNumSamples());
+        runThrough (proc, excite);
+
+        // Five minutes of silence, measured in half-second windows a minute apart.
+        juce::Array<float> marks;
+        juce::AudioBuffer<float> minute (2, (int) (kSampleRate * 60.0));
+        auto finite = true;
+        auto worstPeak = 0.0f;
+
+        for (int m = 0; m < 5; ++m)
+        {
+            minute.clear();
+            runThrough (proc, minute);
+
+            const auto s = analyse (minute, (int) (kSampleRate * 59.5), (int) (kSampleRate * 0.5));
+            marks.add (s.rms);
+            finite = finite && s.finite;
+            worstPeak = juce::jmax (worstPeak, analyse (minute).peak);
+        }
+
+        std::cout << "  regenerating level by minute:";
+        for (auto v : marks)
+            std::cout << " " << juce::String (juce::Decibels::gainToDecibels (
+                                                  juce::jmax (1.0e-9f, v)), 1);
+        std::cout << " dBFS (peak " << worstPeak << ")" << std::endl;
+
+        const auto first = marks[0], last = marks[4];
+        auto lowest = marks[0], highest = marks[0];
+        for (auto v : marks) { lowest = juce::jmin (lowest, v); highest = juce::jmax (highest, v); }
+
+        expect (finite && worstPeak < 2.0f, "regenerating output stays finite and bounded");
+        expect (lowest > 0.002f, "still audible after five minutes of no input");
+        expect (juce::Decibels::gainToDecibels (highest / juce::jmax (1.0e-9f, lowest)) < 12.0f,
+                "the governor holds the level inside 12 dB across five minutes");
+        juce::ignoreUnused (first, last);
+    }
+
+    // ---- 15. feedback at zero changes nothing --------------------------------
+    // The control defaults to zero and every existing preset sets it there, so this is
+    // what guarantees a saved session sounds the same after the upgrade that added it.
+    {
+        auto tailWith = [&] (float feedbackPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 60.0f);
+            setParam (proc, feedback, feedbackPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 6.0));
+            buffer.clear();
+            fillNoise (buffer, 0.35f, 0, (int) (kSampleRate * 0.25));
+            runThrough (proc, buffer);
+            return analyse (buffer, (int) (kSampleRate * 5.5), (int) (kSampleRate * 0.5)).rms;
+        };
+
+        const auto off = tailWith (0.0f);
+        const auto on  = tailWith (95.0f);
+
+        std::cout << "  tail at 5.5 s - feedback 0 %: "
+                  << juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, off))
+                  << " dBFS, feedback 95 %: "
+                  << juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, on)) << " dBFS"
+                  << std::endl;
+
+        expect (on > off * 4.0f, "feedback demonstrably outlasts the decay curve alone");
     }
 
     // ---- CPU cost ------------------------------------------------------------
