@@ -459,6 +459,109 @@ int runCheck()
                              + " factory presets all stay finite and bounded");
     }
 
+    // ---- 11. state round-trips ----------------------------------------------
+    // What a host does on every session save and reload. Getting this wrong loses a
+    // user's settings, which is the one bug nobody forgives - and it is entirely
+    // testable without a host.
+    {
+        neutral (proc);
+        setParam (proc, decay, 77.0f);
+        setParam (proc, shimmer, 41.0f);
+        setParam (proc, shimPitch, -7.0f);
+        setParam (proc, lowCut, 210.0f);
+        setParam (proc, collapse, 63.0f);
+        setParam (proc, freeze, 1.0f);
+
+        juce::Array<float> expected;
+        for (auto* p : proc.getParameters())
+            expected.add (p->getValue());
+
+        juce::MemoryBlock blob;
+        proc.getStateInformation (blob);
+
+        // Scramble everything, so a restore that silently does nothing cannot pass.
+        for (auto* p : proc.getParameters())
+            p->setValueNotifyingHost (1.0f - p->getValue());
+
+        proc.setStateInformation (blob.getData(), (int) blob.getSize());
+
+        auto worst = 0.0f;
+        int index = 0;
+        for (auto* p : proc.getParameters())
+            worst = juce::jmax (worst, std::abs (p->getValue() - expected[index++]));
+
+        std::cout << "  worst parameter drift across a save/reload: " << worst << std::endl;
+        expect (blob.getSize() > 0, "state serialises to a non-empty block");
+        expect (worst < 1.0e-6f, "every parameter survives a state round-trip");
+    }
+
+    // ---- 12. the editor can be opened and closed repeatedly ------------------
+    // Hosts open and close editors constantly. This is where a dangling LookAndFeel or
+    // an attachment outliving its parameter shows up - as a crash in someone's session.
+    {
+        neutral (proc);
+        bool allPainted = true;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+
+            if (editor == nullptr)
+            {
+                allPainted = false;
+                break;
+            }
+
+            editor->setSize (dying::DyingStarEditor::kLogicalWidth,
+                             dying::DyingStarEditor::kLogicalHeight);
+            const auto image = editor->createComponentSnapshot (editor->getLocalBounds(),
+                                                                true, 1.0f);
+            allPainted = allPainted && image.isValid();
+        }
+
+        expect (allPainted, "the editor constructs, paints and destroys three times over");
+    }
+
+    // ---- 13. automation while audio is running -------------------------------
+    // Parameters moving every block is the normal case in a host, not the exception.
+    // It is also what catches a smoother whose coefficient depends on a value it is
+    // being handed mid-ramp.
+    {
+        neutral (proc);
+        proc.reset();
+
+        const char* swept[] = { size, decay, shimmer, shimPitch, collapse, mass,
+                                modRate, modDepth, detune, preDelay, mix, width };
+
+        juce::AudioBuffer<float> block (2, kBlockSize);
+        juce::MidiBuffer midi;
+        auto worstPeak = 0.0f;
+        bool finite = true;
+
+        for (int n = 0; n < 400; ++n)
+        {
+            const auto t = (float) n / 400.0f;
+
+            // Each control sweeps on its own phase, so they are never all at the same
+            // point of the same ramp at the same time.
+            for (int k = 0; k < (int) (sizeof (swept) / sizeof (swept[0])); ++k)
+                if (auto* p = proc.getState().getParameter (swept[k]))
+                    p->setValueNotifyingHost (0.5f + 0.5f * std::sin (t * 37.0f + (float) k));
+
+            fillNoise (block, 0.5f, 0, kBlockSize);
+            proc.processBlock (block, midi);
+
+            const auto s = analyse (block);
+            finite = finite && s.finite;
+            worstPeak = juce::jmax (worstPeak, s.peak);
+        }
+
+        std::cout << "  peak while sweeping 12 parameters every block: " << worstPeak
+                  << std::endl;
+        expect (finite && worstPeak < 2.0f,
+                "stays finite and bounded with parameters sweeping every block");
+    }
+
     // ---- CPU cost ------------------------------------------------------------
     {
         constexpr double seconds = 60.0;
