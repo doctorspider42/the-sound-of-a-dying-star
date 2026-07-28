@@ -110,10 +110,10 @@ jobs:
           path: ${{ matrix.package }}
           if-no-files-found: error
 
-  # Every green push to main replaces one prerelease under a fixed tag, so there is
-  # always a current download at a stable URL. Marked prerelease on purpose: CI proves
-  # the DSP computes and the editor paints, not that a host loads it cleanly.
-  dev-release:
+  # Every green push to main publishes its own release, tagged with the run number so
+  # the tags sort and nothing is ever overwritten. Only reached if the build job went
+  # green, so a failing check cannot publish.
+  release:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-22.04
@@ -121,6 +121,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # needed to read the commit subject for the notes
+
       - uses: actions/download-artifact@v4
         with: { path: artifacts, merge-multiple: true }
 
@@ -128,22 +131,36 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           short="${GITHUB_SHA:0:7}"
+          tag="build-${{ github.run_number }}"
+          subject="$(git log -1 --pretty=%s)"
+
+          # YAML strips the block's common indentation, so the heredoc body really does
+          # start at column 0 in the generated script - as long as every line, the
+          # terminator included, shares one indentation level here.
           cat > notes.md <<'EOF'
-          Rolling development build. Not a release — it has not been checked in a DAW.
+          Automated build from `main`. Every check in `devtool check` passed and
+          pluginval cleared it at strictness 8 on Linux — but no DAW has opened this
+          binary, so treat it as a build rather than a vetted release.
 
-          Unzip and drop the `.vst3` into your VST3 folder:
-          `%COMMONPROGRAMFILES%\VST3` on Windows, `~/.vst3` on Linux.
+          **Install:** unzip and drop `The Sound of a Dying Star.vst3` into your VST3
+          folder — `%COMMONPROGRAMFILES%\VST3` on Windows, `~/.vst3` on Linux. The
+          standalone in the same archive needs nothing installing.
+
+          Each archive carries `BUILD-INFO.txt` with this commit and the exact JUCE
+          revision it was built against, which is the corresponding source this project's
+          licence requires.
           EOF
-          echo "" >> notes.md
-          echo "Built from \`$GITHUB_SHA\`." >> notes.md
 
-          # A published release cannot have its tag moved, and a leftover tag with no
-          # release would silently attach new binaries to an old commit. Delete both.
-          gh release delete dev --yes --cleanup-tag 2>/dev/null || true
-          git push --delete origin dev 2>/dev/null || true
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "\`$short\` — $subject"
+          } >> notes.md
 
-          gh release create dev --prerelease --latest=false \
-            --target "$GITHUB_SHA" --title "Dying Star dev ($short)" \
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "The Sound of a Dying Star — build ${{ github.run_number }} ($short)" \
             --notes-file notes.md artifacts/*
 
   # Tags produce a draft, so notes and binaries get a human read before anyone downloads.

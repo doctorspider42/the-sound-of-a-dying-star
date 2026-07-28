@@ -56,7 +56,7 @@ middle of it.
 Needs CMake 3.22+, a C++17 compiler and git.
 
 ```bash
-git clone --recurse-submodules --shallow-submodules https://github.com/<owner>/the-sound-of-a-dying-star.git
+git clone --recurse-submodules --shallow-submodules https://github.com/doctorspider42/the-sound-of-a-dying-star.git
 cd the-sound-of-a-dying-star
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
@@ -115,12 +115,33 @@ is pinned as a submodule and every release archive carries a `BUILD-INFO.txt` na
 repository's commit and the exact JUCE revision, so "here is the source that built this"
 is a link rather than an investigation.
 
-## Still to do before calling it finished
+## Downloads
 
-CI proves the DSP computes and the panel paints. It cannot prove a host loads the thing.
-Worth doing by hand in a DAW, or with [pluginval](https://github.com/Tracktion/pluginval):
+Every push to `main` that passes the checks publishes a release with Linux and Windows
+archives — see [Releases](../../releases). Each archive holds the VST3, the standalone,
+both licence texts, and a `BUILD-INFO.txt` naming the commit and the JUCE revision it was
+built from.
 
-- parameter automation from the host
-- save/reload inside a session, and preset switching
-- sample-rate and buffer-size changes while audio is running
-- mono and stereo instantiations
+Unzip and drop `The Sound of a Dying Star.vst3` into `%COMMONPROGRAMFILES%\VST3` on
+Windows or `~/.vst3` on Linux. The standalone needs nothing installing.
+
+## What is and is not verified
+
+Verified on every push, on both platforms, by `devtool check` — and CI additionally runs
+[pluginval](https://github.com/Tracktion/pluginval) at strictness 8 on Linux, under
+`xvfb-run` so the editor tests actually run rather than being silently skipped:
+
+- the dry path is bit-identical at 0 % mix, and the wet path is level-matched to it
+- every control reaches the DSP, and the decay curve is monotonic
+- shimmer genuinely puts energy an octave above the source
+- freeze holds for twenty seconds inside 1.5 dB
+- nothing goes non-finite with every control at maximum, across 44.1–192 kHz and block
+  sizes from 16 to 2048, in mono and in stereo
+- every parameter survives a state save/reload round-trip
+- the editor constructs, paints and is destroyed repeatedly without falling over
+- twelve parameters sweeping every block stays bounded
+
+**Not** verified, because no automated check can: how it behaves inside a specific DAW.
+Worth ten minutes in your host of choice before trusting it in a session — automation
+from the host's own lanes, saving and reloading a project, and switching presets while
+audio is running.
