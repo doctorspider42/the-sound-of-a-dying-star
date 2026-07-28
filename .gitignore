@@ -1,0 +1,8 @@
+build/
+build-*/
+dist/
+*.png.tmp
+.cache/
+.vscode/
+.idea/
+compile_commands.json

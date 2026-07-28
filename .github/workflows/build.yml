@@ -1,0 +1,165 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Deliberately not ubuntu-latest: a binary linked against an older glibc keeps
+          # working on newer distributions, and the reverse is not true.
+          - { os: ubuntu-22.04, label: linux,   package: dying-star-linux-x86_64.tar.gz }
+          - { os: windows-2022, label: windows, package: dying-star-windows-x64.zip }
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxext-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxcomposite-dev libxrender-dev \
+            libgl1-mesa-dev fonts-dejavu-core xvfb
+
+      - name: Configure
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DDYINGSTAR_COPY_AFTER_BUILD=OFF
+          -DDYINGSTAR_BUILD_TOOLS=ON
+          -DDYINGSTAR_BUILD_ID=${{ github.sha }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      # Runs before packaging, so a red build cannot publish.
+      - name: DSP checks
+        shell: bash
+        run: ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool$([ "$RUNNER_OS" = Windows ] && echo .exe) check
+
+      - name: Panel smoke test
+        shell: bash
+        run: |
+          tool=./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool$([ "$RUNNER_OS" = Windows ] && echo .exe)
+          "$tool" shot panel-${{ matrix.label }}.png
+          test -s panel-${{ matrix.label }}.png
+
+      # Without xvfb-run, pluginval silently skips every editor test and hands back a
+      # green tick that proved much less than it looks like it did.
+      - name: pluginval
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSL -o pluginval.zip \
+            https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_Linux.zip
+          unzip -q pluginval.zip
+          chmod +x pluginval
+          xvfb-run -a ./pluginval --strictness-level 8 --validate-in-process \
+            --validate "build/DyingStar_artefacts/Release/VST3/The Sound of a Dying Star.vst3"
+
+      - name: Package
+        shell: bash
+        run: |
+          name="The Sound of a Dying Star"
+          mkdir -p "dist/$name"
+          cp -r "build/DyingStar_artefacts/Release/VST3/$name.vst3" "dist/$name/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "build/DyingStar_artefacts/Release/Standalone/$name.exe" "dist/$name/"
+          else
+            cp "build/DyingStar_artefacts/Release/Standalone/$name" "dist/$name/"
+          fi
+          cp LICENSE LICENSE.AGPLv3 NOTICE.md README.md "dist/$name/"
+          cp panel-${{ matrix.label }}.png "dist/$name/panel.png"
+
+          # This file is what turns "corresponding source" from a promise into a fact.
+          {
+            echo "Source:         ${{ github.server_url }}/${{ github.repository }}"
+            echo "Commit:         ${{ github.sha }}"
+            echo "JUCE submodule: $(git -C libs/JUCE rev-parse HEAD)"
+            echo "Built on:       ${{ matrix.os }}"
+          } > "dist/$name/BUILD-INFO.txt"
+
+          cd dist
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "../${{ matrix.package }}" "$name" > /dev/null
+          else
+            tar czf "../${{ matrix.package }}" "$name"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: ${{ matrix.package }}
+          if-no-files-found: error
+
+  # Every green push to main replaces one prerelease under a fixed tag, so there is
+  # always a current download at a stable URL. Marked prerelease on purpose: CI proves
+  # the DSP computes and the editor paints, not that a host loads it cleanly.
+  dev-release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          short="${GITHUB_SHA:0:7}"
+          cat > notes.md <<'EOF'
+          Rolling development build. Not a release — it has not been checked in a DAW.
+
+          Unzip and drop the `.vst3` into your VST3 folder:
+          `%COMMONPROGRAMFILES%\VST3` on Windows, `~/.vst3` on Linux.
+          EOF
+          echo "" >> notes.md
+          echo "Built from \`$GITHUB_SHA\`." >> notes.md
+
+          # A published release cannot have its tag moved, and a leftover tag with no
+          # release would silently attach new binaries to an old commit. Delete both.
+          gh release delete dev --yes --cleanup-tag 2>/dev/null || true
+          git push --delete origin dev 2>/dev/null || true
+
+          gh release create dev --prerelease --latest=false \
+            --target "$GITHUB_SHA" --title "Dying Star dev ($short)" \
+            --notes-file notes.md artifacts/*
+
+  # Tags produce a draft, so notes and binaries get a human read before anyone downloads.
+  tagged-release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --draft --generate-notes \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "The Sound of a Dying Star ${GITHUB_REF_NAME}" artifacts/*
