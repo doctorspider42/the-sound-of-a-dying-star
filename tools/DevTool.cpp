@@ -178,6 +178,21 @@ juce::Array<float> repeatTimesMs (const juce::AudioBuffer<float>& buffer, float 
     return times;
 }
 
+/** Where a stretch of audio sits between the speakers: +1 hard left, -1 hard right. */
+float balanceOver (const juce::AudioBuffer<float>& buffer, int start, int numSamples)
+{
+    double sumL = 0.0, sumR = 0.0;
+
+    for (int i = start; i < start + numSamples; ++i)
+    {
+        sumL += (double) buffer.getSample (0, i) * buffer.getSample (0, i);
+        sumR += (double) buffer.getSample (1, i) * buffer.getSample (1, i);
+    }
+
+    const auto l = std::sqrt (sumL), r = std::sqrt (sumR);
+    return (float) ((l - r) / (l + r + 1.0e-12));
+}
+
 void runThrough (Processor& proc, juce::AudioBuffer<float>& buffer, int blockSize = kBlockSize)
 {
     juce::MidiBuffer midi;
@@ -232,6 +247,8 @@ void neutral (Processor& proc)
     setParam (proc, delayAbyss, 0.0f);
     setParam (proc, delayMorph, 0.0f);
     setParam (proc, delayBounce, 0.0f);
+    setParam (proc, delayWidth, 100.0f);
+    setParam (proc, mono, 0.0f);
     setParam (proc, delayMix, 100.0f);
 }
 
@@ -243,6 +260,9 @@ int runCheck()
     proc.setPlayConfigDetails (2, 2, kSampleRate, kBlockSize);
     proc.prepareToPlay (kSampleRate, kBlockSize);
 
+    // Several checks below compare floats with juce::exactlyEqual rather than a
+    // tolerance, and mean it: "bit-identical", "both channels are the same channel" and
+    // "the meter reads zero" are claims that a tolerance would not be making.
     int failures = 0;
     auto expect = [&failures] (bool condition, const juce::String& what)
     {
@@ -632,7 +652,7 @@ int runCheck()
                                 mix, width,
                                 delayTime, delayFeed, delaySpread, delayShimmer,
                                 delayTone, delayWobble, delayMorph, delayBounce,
-                                delayAbyss, delayMix };
+                                delayWidth, delayAbyss, delayMix };
 
         setParam (proc, delayOn, 1.0f);
 
@@ -853,7 +873,8 @@ int runCheck()
                 worst = juce::jmax (worst, std::abs (quiet.getSample (ch, n)
                                                          - wild.getSample (ch, n)));
 
-        expect (worst == 0.0f, "the delay section is bit-identical to absent while off");
+        expect (juce::exactlyEqual (worst, 0.0f),
+                "the delay section is bit-identical to absent while off");
     }
 
     // ---- 18. the repeat lands where the time control says --------------------
@@ -1184,7 +1205,8 @@ int runCheck()
             std::cout << "  space after loading a state that predates it: " << restored
                       << " %" << std::endl;
 
-            expect (restored == 0.0f, "a state without Space reloads with the early field off");
+            expect (juce::exactlyEqual (restored, 0.0f),
+                    "a state without Space reloads with the early field off");
             expect (std::abs (decayKept - 66.0f) < 0.01f,
                     "and the rest of that state still arrives intact");
         }
@@ -1365,6 +1387,180 @@ int runCheck()
                   << ", above it: " << aboveIt << std::endl;
 
         expect (onNote > aboveIt, "the bouncing repeats stay on the note they came in on");
+    }
+
+    // ---- 30. the repeats really do go left, right, left ----------------------
+    // Spread is the ping-pong, and it used to be one only at the very top of its
+    // travel: measured with a mono click, the second repeat sat dead centre at 60 %.
+    // The rotation is tapered now, so the control does something across its range.
+    {
+        auto balances = [&] (float spreadPercent)
+        {
+            neutral (proc);
+            setParam (proc, reverbLevel, 0.0f);   // the repeats, and nothing else
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 300.0f);
+            setParam (proc, delayFeed, 85.0f);
+            setParam (proc, delaySpread, spreadPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 2.0));
+            buffer.clear();
+            fillNoise (buffer, 0.7f, 0, (int) (kSampleRate * 0.005));
+
+            for (int n = 0; n < (int) (kSampleRate * 0.005); ++n)
+                buffer.setSample (1, n, buffer.getSample (0, n));   // exactly mono in
+
+            runThrough (proc, buffer);
+
+            juce::Array<float> out;
+            for (int r = 1; r <= 4; ++r)
+                out.add (balanceOver (buffer, (int) (kSampleRate * 0.3 * r)
+                                                  - (int) (kSampleRate * 0.01),
+                                      (int) (kSampleRate * 0.08)));
+            return out;
+        };
+
+        auto describe = [] (const juce::Array<float>& b)
+        {
+            juce::String s;
+            for (auto v : b)
+                s += juce::String (v, 2) + " ";
+            return s;
+        };
+
+        const auto centred = balances (0.0f);
+        const auto middling = balances (60.0f);
+        const auto hard = balances (100.0f);
+
+        std::cout << "  repeat balance, spread 0 %:   " << describe (centred) << std::endl;
+        std::cout << "  repeat balance, spread 60 %:  " << describe (middling) << std::endl;
+        std::cout << "  repeat balance, spread 100 %: " << describe (hard) << std::endl;
+
+        expect (std::abs (centred[0]) < 0.05f && std::abs (centred[3]) < 0.05f,
+                "with spread at zero a mono source stays in the middle");
+
+        expect (hard[0] > 0.9f && hard[1] < -0.9f && hard[2] > 0.9f && hard[3] < -0.9f,
+                "at 100 % the repeats alternate hard left and hard right");
+
+        expect (middling[0] > 0.3f && middling[1] < -0.3f,
+                "and at 60 % they are already clearly bouncing");
+    }
+
+    // ---- 31. the delay's own width -------------------------------------------
+    {
+        auto sideEnergyFor = [&] (float widthPercent)
+        {
+            neutral (proc);
+            setParam (proc, reverbLevel, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 250.0f);
+            setParam (proc, delayFeed, 80.0f);
+            setParam (proc, delaySpread, 100.0f);
+            setParam (proc, delayWidth, widthPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 2.0));
+            buffer.clear();
+            fillNoise (buffer, 0.6f, 0, (int) (kSampleRate * 0.01));
+            runThrough (proc, buffer);
+
+            double mid = 0.0, side = 0.0;
+            for (int i = (int) (kSampleRate * 0.2); i < buffer.getNumSamples(); ++i)
+            {
+                const auto m = 0.5 * (buffer.getSample (0, i) + buffer.getSample (1, i));
+                const auto s = 0.5 * (buffer.getSample (0, i) - buffer.getSample (1, i));
+                mid += m * m;
+                side += s * s;
+            }
+
+            return (float) (side / (mid + 1.0e-12));
+        };
+
+        const auto narrow = sideEnergyFor (0.0f);
+        const auto normal = sideEnergyFor (100.0f);
+        const auto wide   = sideEnergyFor (200.0f);
+
+        std::cout << "  side-to-mid at delay width 0/100/200 %: " << narrow << " "
+                  << normal << " " << wide << std::endl;
+
+        expect (narrow < 1.0e-6f, "at 0 % the delay is mono, wherever Spread has put it");
+        expect (wide > normal * 2.0f, "at 200 % it is wider than it was");
+    }
+
+    // ---- 32. mono sums exactly what left the plug-in --------------------------
+    // Not a pan law, not a correlation trick: the two channels have to become the same
+    // channel, and that channel has to be what the stereo output would have summed to.
+    {
+        auto render = [&] (bool summed)
+        {
+            neutral (proc);
+            setParam (proc, decay, 60.0f);
+            setParam (proc, space, 50.0f);
+            setParam (proc, width, 160.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayFeed, 60.0f);
+            setParam (proc, delaySpread, 100.0f);
+            setParam (proc, mono, summed ? 1.0f : 0.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 1.5));
+            buffer.clear();
+            fillNoise (buffer, 0.4f, 0, (int) (kSampleRate * 0.5));
+            runThrough (proc, buffer);
+            return buffer;
+        };
+
+        const auto stereo = render (false);
+        const auto summed = render (true);
+
+        auto worstSplit = 0.0f, worstSum = 0.0f;
+
+        for (int n = 0; n < stereo.getNumSamples(); ++n)
+        {
+            worstSplit = juce::jmax (worstSplit, std::abs (summed.getSample (0, n)
+                                                               - summed.getSample (1, n)));
+            worstSum = juce::jmax (worstSum,
+                                   std::abs (summed.getSample (0, n)
+                                                 - 0.5f * (stereo.getSample (0, n)
+                                                               + stereo.getSample (1, n))));
+        }
+
+        std::cout << "  mono: worst channel difference " << worstSplit
+                  << ", worst error against the stereo sum " << worstSum << std::endl;
+
+        expect (juce::exactlyEqual (worstSplit, 0.0f),
+                "with Mono engaged both channels are identical");
+        expect (worstSum < 1.0e-6f, "and they are the sum of what stereo would have given");
+    }
+
+    // ---- 33. bypass tells the meter -------------------------------------------
+    // The panel keeps reading the last thing it saw otherwise, which is a tail meter
+    // sitting half full while nothing at all is being processed.
+    {
+        neutral (proc);
+        setParam (proc, decay, 80.0f);
+        proc.reset();
+
+        juce::AudioBuffer<float> excite (2, (int) (kSampleRate * 0.5));
+        fillNoise (excite, 0.5f, 0, excite.getNumSamples());
+        runThrough (proc, excite);
+
+        const auto whileRunning = proc.getWetLevel();
+
+        setParam (proc, bypass, 1.0f);
+        juce::AudioBuffer<float> quiet (2, kBlockSize);
+        quiet.clear();
+        runThrough (proc, quiet);
+
+        const auto whileBypassed = proc.getWetLevel();
+        setParam (proc, bypass, 0.0f);
+
+        std::cout << "  tail meter: " << whileRunning << " running, " << whileBypassed
+                  << " bypassed" << std::endl;
+
+        expect (whileRunning > 0.01f && juce::exactlyEqual (whileBypassed, 0.0f),
+                "the meter reads zero while the plug-in is bypassed");
     }
 
     // ---- CPU cost ------------------------------------------------------------

@@ -67,7 +67,7 @@ private:
     StarView star;
     TailMeter tailMeter;
     FreezePill freeze;
-    EngagePill delayEngage;
+    EngagePill delayEngage, monoSwitch, bypassSwitch;
     PresetBar presets;
 
     std::unique_ptr<CosmicKnob> kPreDelay, kSize, kSpace, kDecay, kDiffusion, kReverb;
@@ -76,7 +76,7 @@ private:
     std::unique_ptr<CosmicKnob> kCollapse, kMass;
     std::unique_ptr<CosmicKnob> kDelayTime, kDelayBounce, kDelayFeed, kDelaySpread,
                                 kDelayShimmer, kDelayPitch, kDelayMorph, kDelayTone,
-                                kDelayWobble, kDelayAbyss, kDelayMix;
+                                kDelayWobble, kDelayAbyss, kDelayMix, kDelayWidth;
     std::unique_ptr<CosmicKnob> kFeedback, kMix, kOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DyingStarEditor)

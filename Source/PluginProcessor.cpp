@@ -93,6 +93,7 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.width        = params.width->load()     * 0.01f;
     p.outputGain   = juce::Decibels::decibelsToGain (params.output->load());
     p.freeze       = params.freeze->load() > 0.5f;
+    p.mono         = params.mono->load() > 0.5f;
 
     p.delay.enabled    = params.delayOn->load() > 0.5f;
     p.delay.timeMs     = params.delayTime->load();
@@ -106,6 +107,7 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.delay.mix        = params.delayMix->load()     * 0.01f;
     p.delay.morph      = params.delayMorph->load()   * 0.01f;
     p.delay.bounce     = params.delayBounce->load()  * 0.01f;
+    p.delay.width      = params.delayWidth->load()   * 0.01f;
 
     engine.setParams (p);
 }
@@ -123,7 +125,15 @@ void DyingStarProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         return;
 
     if (params.bypass->load() > 0.5f)
-        return;   // latency is zero, so the dry buffer is already the correct output
+    {
+        // Latency is zero, so the dry buffer is already the correct output. The meter
+        // has to be told, though: left alone it holds whatever it was reading when the
+        // bypass went on, and a tail meter frozen at half full while nothing is being
+        // processed is a lie the panel tells for as long as you leave it there.
+        wetLevelOut.store (0.0f, std::memory_order_relaxed);
+        brightnessOut.store (0.0f, std::memory_order_relaxed);
+        return;
+    }
 
     pushParametersToEngine();
 

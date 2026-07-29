@@ -178,6 +178,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (percent (pid::delayMix,    "Delay Mix",    35.0f));
     layout.add (percent (pid::delayMorph,  "Delay Morph",  20.0f));
 
+    // The delay's own image, on top of whatever Spread has done with the repeats and
+    // independent of the Width in Emission - so the echoes can be wider than the space
+    // they are echoing into, or narrower than it.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { pid::delayWidth, 1 }, "Delay Width",
+        Range (0.0f, 200.0f, 0.1f), 100.0f,
+        Attributes().withLabel ("%")
+                    .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 0); })));
+
     // Bipolar: to the right the repeats land sooner and sooner, to the left they spread
     // apart. Zero is a delay whose spacing does not move, which is what a delay is.
     layout.add (std::make_unique<juce::AudioParameterFloat> (
@@ -195,6 +204,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (percent (pid::space, "Space", 40.0f));
 
     layout.add (percent (pid::reverbLevel, "Reverb", 100.0f));
+
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { pid::mono, 1 }, "Mono", false));
 
     return layout;
 }
@@ -241,6 +253,8 @@ void ParamPointers::attach (juce::AudioProcessorValueTreeState& state)
     delayMix     = get (pid::delayMix);
     delayMorph   = get (pid::delayMorph);
     delayBounce  = get (pid::delayBounce);
+    delayWidth   = get (pid::delayWidth);
+    mono         = get (pid::mono);
 
     space        = get (pid::space);
     reverbLevel  = get (pid::reverbLevel);

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(DyingStar
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "The Sound of a Dying Star - cosmic shimmer reverb"
     LANGUAGES C CXX)
 

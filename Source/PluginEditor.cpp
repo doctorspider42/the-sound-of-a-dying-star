@@ -152,7 +152,9 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     : juce::AudioProcessorEditor (&p),
       processor (p),
       freeze (p.getState(), pid::freeze),
-      delayEngage (p.getState(), pid::delayOn, "Engage", skin::colour::echo)
+      delayEngage (p.getState(), pid::delayOn, "Engage", skin::colour::echo),
+      monoSwitch (p.getState(), pid::mono, "Mono", skin::colour::spectrum),
+      bypassSwitch (p.getState(), pid::bypass, "Bypass", skin::colour::collapse)
 {
     addAndMakeVisible (content);
     content.addAndMakeVisible (backdrop);
@@ -161,6 +163,8 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     content.addAndMakeVisible (tailMeter);
     content.addAndMakeVisible (freeze);
     content.addAndMakeVisible (delayEngage);
+    content.addAndMakeVisible (monoSwitch);
+    content.addAndMakeVisible (bypassSwitch);
     content.addAndMakeVisible (presets);
 
     using namespace skin::colour;
@@ -189,6 +193,7 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     kDelayTime    = makeKnob (pid::delayTime,    "Time",     echo);
     kDelayFeed    = makeKnob (pid::delayFeed,    "Feedback", echo);
     kDelaySpread  = makeKnob (pid::delaySpread,  "Spread",   echo);
+    kDelayWidth   = makeKnob (pid::delayWidth,   "Width",    echo);
     kDelayShimmer = makeKnob (pid::delayShimmer, "Shimmer",  echo);
     kDelayPitch   = makeKnob (pid::delayPitch,   "Pitch",    echo, true);
     kDelayTone    = makeKnob (pid::delayTone,    "Tone",     echo);
@@ -294,6 +299,11 @@ void DyingStarEditor::layOutContent()
     presets.setBounds (juce::Rectangle<float> (contentWidth - kMargin - 238.0f,
                                                kHeaderY + 8.0f, 238.0f, 26.0f).toNearestInt());
 
+    // Where a plug-in's own bypass belongs: in the chrome with the preset name, not in
+    // among the controls it switches off.
+    bypassSwitch.setBounds (juce::Rectangle<float> (contentWidth - kMargin - 456.0f,
+                                                    kHeaderY + 8.0f, 118.0f, 26.0f).toNearestInt());
+
     star.setBounds (juce::Rectangle<float> (kMargin, kStarY,
                                             contentWidth - 2.0f * kMargin, kStarH).toNearestInt());
 
@@ -369,15 +379,17 @@ void DyingStarEditor::layOutContent()
         body.removeFromTop (34.0f);
         body.removeFromBottom (10.0f);
 
-        auto engageArea = body.removeFromLeft (124.0f);
-        delayEngage.setBounds (engageArea.withSizeKeepingCentre (118.0f, 42.0f).toNearestInt());
+        auto engageArea = body.removeFromLeft (112.0f);
+        delayEngage.setBounds (engageArea.withSizeKeepingCentre (106.0f, 42.0f).toNearestInt());
         body.removeFromLeft (6.0f);
 
+        // Spread and Width next to each other: one decides where a repeat lands, the
+        // other how wide the pair of them is, and they are read together or not at all.
         layOutRow (body, { kDelayTime.get(), kDelayBounce.get(), kDelayFeed.get(),
-                           kDelaySpread.get(), kDelayShimmer.get(), kDelayPitch.get(),
-                           kDelayMorph.get(), kDelayTone.get(), kDelayWobble.get(),
-                           kDelayAbyss.get(), kDelayMix.get() },
-                   74.0f, 54.0f);
+                           kDelaySpread.get(), kDelayWidth.get(), kDelayShimmer.get(),
+                           kDelayPitch.get(), kDelayMorph.get(), kDelayTone.get(),
+                           kDelayWobble.get(), kDelayAbyss.get(), kDelayMix.get() },
+                   69.0f, 50.0f);
     }
 
     // ---- master row ---------------------------------------------------------
@@ -386,20 +398,25 @@ void DyingStarEditor::layOutContent()
         body.removeFromTop (34.0f);
         body.removeFromBottom (8.0f);
 
-        auto freezeArea = body.removeFromLeft (268.0f);
-        freeze.setBounds (freezeArea.withSizeKeepingCentre (252.0f, 58.0f).toNearestInt());
+        // The right-hand end first, so the meter simply takes whatever is left in the
+        // middle and nothing has to add up to the panel width by hand.
+        layOutRow (body.removeFromRight (128.0f), { kOutput.get() }, 128.0f, 74.0f);
+        layOutRow (body.removeFromRight (128.0f), { kMix.get() },    128.0f, 74.0f);
+
+        auto freezeArea = body.removeFromLeft (232.0f);
+        freeze.setBounds (freezeArea.withSizeKeepingCentre (216.0f, 58.0f).toNearestInt());
+
+        body.removeFromLeft (12.0f);
+        auto monoArea = body.removeFromLeft (104.0f);
+        monoSwitch.setBounds (monoArea.withSizeKeepingCentre (98.0f, 44.0f).toNearestInt());
 
         // Feedback sits with Freeze, not with Decay: these two are the controls that
         // decide whether the thing ever stops, and they belong to each other.
-        body.removeFromLeft (20.0f);
-        layOutRow (body.removeFromLeft (128.0f), { kFeedback.get() }, 128.0f, 74.0f);
         body.removeFromLeft (12.0f);
+        layOutRow (body.removeFromLeft (124.0f), { kFeedback.get() }, 124.0f, 74.0f);
+        body.removeFromLeft (10.0f);
 
-        auto meterArea = body.removeFromLeft (268.0f);
-        tailMeter.setBounds (meterArea.withSizeKeepingCentre (268.0f, 44.0f).toNearestInt());
-
-        layOutRow (body.removeFromRight (128.0f), { kOutput.get() }, 128.0f, 74.0f);
-        layOutRow (body.removeFromRight (128.0f), { kMix.get() },    128.0f, 74.0f);
+        tailMeter.setBounds (body.withSizeKeepingCentre (body.getWidth(), 44.0f).toNearestInt());
     }
 }
 

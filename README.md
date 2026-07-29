@@ -74,7 +74,8 @@ loop of the same sound.
 | **Time** | 2 ms to 2 s. Changes glide, so sweeping it warps like tape. |
 | **Bounce** | Right: each repeat lands sooner than the last. Left: they spread apart. |
 | **Feedback** | Past unity at the top, where the repeats stop ending. |
-| **Spread** | An orthogonal rotation between the channels: at 0 % a stereo dual delay, at 100 % the repeats bounce. |
+| **Spread** | An orthogonal rotation between the channels: at 0 % a stereo dual delay, at 100 % the repeats bounce left, right, left. |
+| **Width** | The repeats' own image on top of that — mono in the middle at 0 %, wider than hard-panned at 200 %. |
 | **Shimmer** · **Pitch** | How much of each pass comes back transposed, and by how far. |
 | **Morph** | How far the pitch voices wander off that interval, and keep wandering. |
 | **Tone** | How fast the repeats go dark. |
@@ -111,6 +112,17 @@ A run-down takes about one gap divided by the contraction, so the control has to
 two-second spacing as well as a fifty-millisecond one. At the top of it, two seconds runs
 down to a rattle in eight; at 45 % — where *Free Fall* sits — seven hundred milliseconds
 takes about fifteen seconds to get there and another two to die out.
+
+**Spread** is the ping-pong. At 100 % a mono source alternates hard left and hard right,
+measured as a balance of +1.00, −1.00, +1.00, −1.00 across the first four repeats; at 0 %
+it stays where it was. The rotation is tapered, because a straight angle put all of the
+bounce in the last part of the travel — at 60 % the second repeat used to sit dead centre,
+and now it is two thirds of the way to the right.
+
+**Width** is the delay's own image, independent of the Width in Emission. At 0 % the
+repeats collapse to the middle of a reverb that is still as wide as it was; at 200 % they
+are wider than hard-panned. Between them the two controls cover most of what anyone means
+by wanting a delay to do something in the stereo field.
 
 **Morph** is what stops a long-running delay turning into a chord. Four slow modulators
 that share no factors move the two pitch voices around, up to a fifth either way, so a
@@ -169,8 +181,16 @@ as it was saved.
 | **Spectrum** | Low Cut · High Cut · Damping · Width |
 | **Drift** | Shimmer · Pitch · Detune · Mod Rate · Mod Depth |
 | **Collapse** | Collapse · Mass |
-| **Echo** | Engage · Time · Bounce · Feedback · Spread · Shimmer · Pitch · Morph · Tone · Wobble · Abyss · Mix |
-| **Emission** | Freeze · Feedback · Mix · Output |
+| **Echo** | Engage · Time · Bounce · Feedback · Spread · Width · Shimmer · Pitch · Morph · Tone · Wobble · Abyss · Mix |
+| **Emission** | Freeze · Mono · Feedback · Mix · Output |
+| **Chrome** | Bypass, next to the preset name |
+
+**Mono** collapses everything leaving the plug-in — dry included, because the question it
+answers is what the far end of the chain will hear. It is a crossfade rather than a
+switch, and at zero it is arithmetically absent: both channels come out bit-identical to
+what they were. **Bypass** is the same parameter the host's own bypass drives, so the two
+always agree; it hands the input straight back, and the tail meter drops to nothing
+rather than sitting where it was when you pressed it.
 
 **Size** is mapped logarithmically and runs a long way past room-sized: at the top the
 eight lines are over half a second each. That is long enough that the network stops
@@ -321,11 +341,17 @@ Verified on every push, on both platforms, by `devtool check` — and CI additio
   tail without adding level to it
 - the reverb's dry/wet is a straight level, and a state saved before Space existed
   reloads with the early field off and everything else intact
+- a mono source comes out of the delay alternating hard left and hard right at Spread
+  100 %, already clearly bouncing at 60 %, and centred at 0 %
+- the delay's Width collapses it to mono at 0 % and doubles the side energy at 200 %
+- Mono makes the two channels bit-identical, and identical to the sum of what stereo
+  would have produced
+- bypass leaves the meter reading zero rather than whatever it last saw
 - nothing goes non-finite with every control at maximum, across 44.1–192 kHz and block
   sizes from 16 to 2048, in mono and in stereo
 - every parameter survives a state save/reload round-trip
 - the editor constructs, paints and is destroyed repeatedly without falling over
-- twenty-four parameters sweeping every block stays bounded
+- twenty-five parameters sweeping every block stays bounded
 
 **Not** verified, because no automated check can: how it behaves inside a specific DAW.
 Worth ten minutes in your host of choice before trusting it in a session — automation

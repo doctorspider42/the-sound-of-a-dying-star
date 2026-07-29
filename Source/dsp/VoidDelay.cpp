@@ -145,6 +145,7 @@ void VoidDelay::prepare (double sampleRate)
     smMix     .prepare (sr, fast,   params.mix);
     smDrive   .prepare (sr, slow,   1.0f);
     smEngage  .prepare (sr, 25.0f,  0.0f);
+    smWidth   .prepare (sr, fast,   params.width);
 
     energyCoeff = 1.0f - std::exp (-1.0f / (kEnergyTimeSec * (float) sr));
     regCoeff    = 1.0f - std::exp (-(float) kControlInterval / (kRegTimeSec * (float) sr));
@@ -196,7 +197,7 @@ void VoidDelay::reset() noexcept
     updateControlRate();
 
     for (auto* s : { &smTime, &smFeedback, &smSpread, &smShimmer, &smAbyss, &smWobble,
-                     &smMix, &smDrive, &smEngage })
+                     &smMix, &smDrive, &smEngage, &smWidth })
         s->snap();
 
     // Nothing is circulating, so an engine that starts up switched off starts up doing
@@ -249,6 +250,7 @@ void VoidDelay::updateControlRate() noexcept
     smShimmer .setTarget (clamp (params.shimmer, 0.0f, 1.0f));
     smAbyss   .setTarget (abyss);
     smMix     .setTarget (clamp (params.mix, 0.0f, 1.0f));
+    smWidth   .setTarget (clamp (params.width, 0.0f, 2.0f));
     smDrive   .setTarget (1.0f + 13.0f * abyss);
     smWobble  .setTarget (clamp (params.wobble, 0.0f, 1.0f) * kMaxWobbleMs
                               * perPass * 0.001f * (float) sr);
@@ -351,6 +353,7 @@ void VoidDelay::process (float inL, float inR, float& outL, float& outR) noexcep
     const auto driveInv = 1.0f / drive;
     const auto fbGain   = smFeedback.next() * engage;
     const auto mix      = smMix.next() * engage;
+    const auto width    = smWidth.next();
 
     // The right head sits a couple of per cent further out, so the two lines never
     // phase-lock into a single mono repeat however wide the cross-feed is opened.
@@ -472,7 +475,14 @@ void VoidDelay::process (float inL, float inR, float& outL, float& outR) noexcep
     // outright and the repeats bounce, and everywhere in between the pair keeps the
     // energy - and the stereo - it started with. A plain crossfade would collapse the
     // loop to mono half way along the control.
-    const auto theta = spread * kPi * 0.5f;
+    //
+    // Tapered, because a straight angle put the bounce entirely in the last part of the
+    // travel: measured with a mono click, the second repeat sat dead centre at 60 % and
+    // only snapped hard right near the top of the control. The same taper drives the
+    // input fold below, or the right line keeps a quarter of the source and muddies the
+    // alternation the rotation just went to the trouble of creating.
+    const auto bouncing = std::pow (spread, 0.55f);
+    const auto theta = bouncing * kPi * 0.5f;
     const auto c = std::cos (theta), s = std::sin (theta);
     const auto fbL = c * shaped[0] + s * shaped[1];
     const auto fbR = c * shaped[1] - s * shaped[0];
@@ -480,9 +490,9 @@ void VoidDelay::process (float inL, float inR, float& outL, float& outR) noexcep
     // The input follows the same idea from the other end: as the cross-feed opens, the
     // source is folded into the left line alone, which is what makes a mono part bounce
     // rather than simply arrive in both channels at once.
-    const auto norm = 1.0f / (1.0f + spread);
-    const auto writeL = killDenormal ((inL + spread * inR) * norm * engage + fbGain * fbL);
-    const auto writeR = killDenormal ((1.0f - spread) * inR * norm * engage + fbGain * fbR);
+    const auto norm = 1.0f / (1.0f + bouncing);
+    const auto writeL = killDenormal ((inL + bouncing * inR) * norm * engage + fbGain * fbL);
+    const auto writeR = killDenormal ((1.0f - bouncing) * inR * norm * engage + fbGain * fbR);
 
     lines[0].write (writeL);
     lines[1].write (writeR);
@@ -505,8 +515,15 @@ void VoidDelay::process (float inL, float inR, float& outL, float& outR) noexcep
         silentSamples = 0;
     }
 
-    outL = shaped[0] * mix * kDelayTrim;
-    outR = shaped[1] * mix * kDelayTrim;
+    // The repeats' own image, on top of whatever the rotation has done with them. At
+    // 100 % this is exactly the pair above; at 0 % the delay is mono in the middle of a
+    // reverb that is still as wide as it was.
+    const auto gained = mix * kDelayTrim;
+    const auto mid    = 0.5f * (shaped[0] + shaped[1]);
+    const auto side   = 0.5f * (shaped[0] - shaped[1]) * width;
+
+    outL = (mid + side) * gained;
+    outR = (mid - side) * gained;
 }
 
 } // namespace dying::dsp

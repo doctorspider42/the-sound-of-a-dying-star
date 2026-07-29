@@ -61,6 +61,7 @@ struct DelayParams
     float wobble     = 0.25f;   // 0..1, tape-style movement on the read heads
     float morph      = 0.0f;    // 0..1, how far the pitch voices wander
     float bounce     = 0.0f;    // -1..1, how the spacing changes pass by pass
+    float width      = 1.0f;    // 0..2, the repeats' own image
     float abyss      = 0.0f;    // 0..1, downward drag plus drive
     float mix        = 0.35f;   // 0..1, presence in the wet path
 };
@@ -100,7 +101,7 @@ private:
     DCBlocker    dc[2];
 
     Smoothed smTime, smFeedback, smSpread, smShimmer, smAbyss, smWobble, smMix,
-             smDrive, smEngage;
+             smDrive, smEngage, smWidth;
 
     // Same shape of governor as the reverb's: a ceiling rather than a leveller, so
     // below it feedback means feedback and a decaying delay decays exactly as asked.

@@ -62,6 +62,7 @@ struct ReverbParams
     float width        = 1.2f;    // 0..2
     float outputGain   = 1.0f;    // linear
     bool  freeze       = false;
+    bool  mono         = false;   // collapses everything leaving the plug-in
 
     /** The delay in front of the network. It lives inside the wet path, so the dry
         signal stays untouched and Mix still means what it says. */
@@ -119,7 +120,8 @@ private:
 
     DCBlocker dcL, dcR;
 
-    Smoothed smPreDelay, smSizeScale, smDecay, smMix, smWidth, smOutput, smSpace, smReverb;
+    Smoothed smPreDelay, smSizeScale, smDecay, smMix, smWidth, smOutput, smSpace, smReverb,
+             smMono;
     Smoothed smShimmer, smMass, smDrive, smModDepth, smDriftDepth, smInput, smDiffusion;
     Smoothed smFeedback;
 

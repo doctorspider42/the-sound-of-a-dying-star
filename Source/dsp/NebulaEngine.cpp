@@ -175,6 +175,7 @@ void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
     smFeedback  .prepare (sr, slow,   params.feedback);
     smSpace     .prepare (sr, fast,   params.space);
     smReverb    .prepare (sr, fast,   params.reverbLevel);
+    smMono      .prepare (sr, fast,   params.mono ? 1.0f : 0.0f);
 
     energyCoeff = 1.0f - std::exp (-1.0f / (kEnergyTimeSec * (float) sr));
     regCoeff    = 1.0f - std::exp (-(float) kControlInterval / (kRegTimeSec * (float) sr));
@@ -215,7 +216,7 @@ void NebulaEngine::reset() noexcept
 
     for (auto* s : { &smPreDelay, &smSizeScale, &smDecay, &smMix, &smWidth, &smOutput,
                      &smShimmer, &smMass, &smDrive, &smModDepth, &smDriftDepth, &smInput,
-                     &smDiffusion, &smFeedback, &smSpace, &smReverb })
+                     &smDiffusion, &smFeedback, &smSpace, &smReverb, &smMono })
         s->snap();
 
     // After updateTargets, which is what hands the delay its parameters - it snaps its
@@ -246,6 +247,7 @@ void NebulaEngine::updateTargets() noexcept
     smFeedback  .setTarget (params.feedback);
     smSpace     .setTarget (params.space);
     smReverb    .setTarget (params.reverbLevel);
+    smMono      .setTarget (params.mono ? 1.0f : 0.0f);
     smInput     .setTarget (frozen ? 0.0f : kInputTrim);
     smDrive     .setTarget (1.0f + 11.0f * params.collapse);
     smModDepth  .setTarget (params.modDepth * kMaxModMs * 0.001f * (float) sr
@@ -540,13 +542,29 @@ void NebulaEngine::process (float* left, float* right, int numSamples) noexcept
         const auto dryGain = std::cos (mix * kPi * 0.5f);
         const auto out = smOutput.next();
 
-        left[n]  = (dryL * dryGain + wetL * wetGain) * out;
-        right[n] = (dryR * dryGain + wetR * wetGain) * out;
+        auto outL = (dryL * dryGain + wetL * wetGain) * out;
+        auto outR = (dryR * dryGain + wetR * wetGain) * out;
+
+        // Everything, dry included, because the question this control answers is what
+        // the far end of the chain is going to hear. Ramped rather than switched, and
+        // at zero it is arithmetically absent: adding zero times anything leaves both
+        // channels exactly as they were.
+        // Written as a crossfade rather than as "add the difference": both ends of a
+        // crossfade are exact, and x + (m - x) is not x at one end nor m at the other -
+        // it lands an ulp away from each, which is a channel difference of 1.2e-07 in a
+        // control whose entire job is that there is no difference.
+        const auto monoAmount = smMono.next();
+        const auto summed = 0.5f * (outL + outR);
+        outL = outL * (1.0f - monoAmount) + summed * monoAmount;
+        outR = outR * (1.0f - monoAmount) + summed * monoAmount;
+
+        left[n]  = outL;
+        right[n] = outR;
 
         // ---- visualiser followers ---------------------------------------------
-        const auto mono = 0.5f * (wetL + wetR);
-        const auto high = mono - brightSplit.process (mono);
-        levelFollower  += 0.0006f * (std::abs (mono) - levelFollower);
+        const auto wetMono = 0.5f * (wetL + wetR);
+        const auto high = wetMono - brightSplit.process (wetMono);
+        levelFollower  += 0.0006f * (std::abs (wetMono) - levelFollower);
         brightFollower += 0.0006f * (std::abs (high) - brightFollower);
     }
 

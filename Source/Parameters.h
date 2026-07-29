@@ -62,6 +62,10 @@ namespace pid
     inline constexpr const char* delayMix     = "delaymix";
     inline constexpr const char* delayMorph   = "delaymorph";
     inline constexpr const char* delayBounce  = "delaybounce";
+    inline constexpr const char* delayWidth   = "delaywidth";
+
+    // Collapses everything leaving the plug-in to one channel.
+    inline constexpr const char* mono         = "mono";
 
     // The early field, and the network's own level in the wet path.
     inline constexpr const char* space        = "space";
@@ -109,6 +113,8 @@ struct ParamPointers
     std::atomic<float>* delayMix     = nullptr;
     std::atomic<float>* delayMorph   = nullptr;
     std::atomic<float>* delayBounce  = nullptr;
+    std::atomic<float>* delayWidth   = nullptr;
+    std::atomic<float>* mono         = nullptr;
 
     std::atomic<float>* space        = nullptr;
     std::atomic<float>* reverbLevel  = nullptr;
