@@ -123,6 +123,61 @@ float magnitudeAt (const juce::AudioBuffer<float>& buffer, double freq,
     return (float) (2.0 * std::sqrt (re * re + im * im) / (double) numSamples);
 }
 
+/** When each repeat arrives, in milliseconds.
+
+    A repeat is the loudest millisecond within half a gap either side of itself. Picking
+    plain local maxima instead finds the texture inside a single burst and reports a
+    repeat every 20 ms whatever the delay is actually doing - which it did, convincingly,
+    until this was fed a click and the numbers came back identical for three settings
+    that sound nothing alike. */
+juce::Array<float> repeatTimesMs (const juce::AudioBuffer<float>& buffer, float minGapMs)
+{
+    constexpr float windowMs = 1.0f;
+    const auto window = (int) (kSampleRate * windowMs * 0.001);
+
+    std::vector<float> envelope;
+
+    for (int start = 0; start + window <= buffer.getNumSamples(); start += window)
+    {
+        auto peak = 0.0f;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = start; i < start + window; ++i)
+                peak = juce::jmax (peak, std::abs (buffer.getSample (ch, i)));
+
+        envelope.push_back (peak);
+    }
+
+    auto loudest = 0.0f;
+    for (auto v : envelope)
+        loudest = juce::jmax (loudest, v);
+
+    juce::Array<float> times;
+    const auto count = (int) envelope.size();
+    const auto reach = juce::jmax (1, (int) (minGapMs * 0.5f / windowMs));
+
+    for (int i = 0; i < count; ++i)
+    {
+        if (envelope[(size_t) i] <= loudest * 0.01f)
+            continue;
+
+        auto isPeak = true;
+
+        // Strictly greater going back, greater or equal going forward, so a plateau is
+        // reported once rather than at both ends of itself.
+        for (int j = juce::jmax (0, i - reach); j < i && isPeak; ++j)
+            isPeak = envelope[(size_t) j] < envelope[(size_t) i];
+
+        for (int j = i + 1; j <= juce::jmin (count - 1, i + reach) && isPeak; ++j)
+            isPeak = envelope[(size_t) j] <= envelope[(size_t) i];
+
+        if (isPeak)
+            times.add ((float) i * windowMs);
+    }
+
+    return times;
+}
+
 void runThrough (Processor& proc, juce::AudioBuffer<float>& buffer, int blockSize = kBlockSize)
 {
     juce::MidiBuffer midi;
@@ -144,6 +199,8 @@ void neutral (Processor& proc)
     setParam (proc, mix, 100.0f);
     setParam (proc, preDelay, 0.0f);
     setParam (proc, size, 60.0f);
+    setParam (proc, space, 0.0f);          // no early field unless a check asks for one
+    setParam (proc, reverbLevel, 100.0f);
     setParam (proc, decay, 50.0f);
     setParam (proc, feedback, 0.0f);
     setParam (proc, damping, 30.0f);
@@ -161,6 +218,21 @@ void neutral (Processor& proc)
     setParam (proc, output, 0.0f);
     setParam (proc, freeze, 0.0f);
     setParam (proc, bypass, 0.0f);
+
+    // The delay is switched off, and its mix is left wide open: every check below that
+    // wants to hear it only has to engage it.
+    setParam (proc, delayOn, 0.0f);
+    setParam (proc, delayTime, 420.0f);
+    setParam (proc, delayFeed, 0.0f);
+    setParam (proc, delaySpread, 0.0f);
+    setParam (proc, delayShimmer, 0.0f);
+    setParam (proc, delayPitch, 12.0f);
+    setParam (proc, delayTone, 0.0f);
+    setParam (proc, delayWobble, 0.0f);
+    setParam (proc, delayAbyss, 0.0f);
+    setParam (proc, delayMorph, 0.0f);
+    setParam (proc, delayBounce, 0.0f);
+    setParam (proc, delayMix, 100.0f);
 }
 
 int runCheck()
@@ -312,6 +384,17 @@ int runCheck()
         setParam (proc, collapse, 100.0f);
         setParam (proc, modDepth, 100.0f);
         setParam (proc, detune, 100.0f);
+        setParam (proc, delayOn, 1.0f);
+        setParam (proc, delayTime, 300.0f);
+        setParam (proc, delayFeed, 100.0f);
+        setParam (proc, delaySpread, 100.0f);
+        setParam (proc, delayShimmer, 100.0f);
+        setParam (proc, delayTone, 100.0f);
+        setParam (proc, delayWobble, 100.0f);
+        setParam (proc, delayAbyss, 100.0f);
+        setParam (proc, delayMorph, 100.0f);
+        setParam (proc, delayBounce, 100.0f);
+        setParam (proc, space, 100.0f);
         proc.reset();
 
         juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 8.0));
@@ -392,6 +475,15 @@ int runCheck()
         setParam (proc, decay, 80.0f);
         setParam (proc, shimmer, 60.0f);
 
+        // The delay allocates its lines from the sample rate, so the longest setting at
+        // the highest rate is the one that would find a mis-sized buffer.
+        setParam (proc, delayOn, 1.0f);
+        setParam (proc, delayTime, 2000.0f);
+        setParam (proc, delayFeed, 80.0f);
+        setParam (proc, delayShimmer, 50.0f);
+        setParam (proc, delayWobble, 100.0f);
+        setParam (proc, delayAbyss, 60.0f);
+
         bool allFinite = true;
 
         for (const auto rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
@@ -417,6 +509,10 @@ int runCheck()
     // ---- 9. mono ------------------------------------------------------------
     {
         neutral (proc);
+        setParam (proc, delayOn, 1.0f);
+        setParam (proc, delayFeed, 60.0f);
+        setParam (proc, delaySpread, 100.0f);   // nothing to bounce between, in mono
+        setParam (proc, delayShimmer, 40.0f);
         proc.setPlayConfigDetails (1, 1, kSampleRate, kBlockSize);
         proc.prepareToPlay (kSampleRate, kBlockSize);
         proc.reset();
@@ -531,8 +627,14 @@ int runCheck()
         neutral (proc);
         proc.reset();
 
-        const char* swept[] = { size, decay, shimmer, shimPitch, collapse, mass,
-                                modRate, modDepth, detune, preDelay, mix, width };
+        const char* swept[] = { size, space, reverbLevel, decay, shimmer, shimPitch,
+                                collapse, mass, modRate, modDepth, detune, preDelay,
+                                mix, width,
+                                delayTime, delayFeed, delaySpread, delayShimmer,
+                                delayTone, delayWobble, delayMorph, delayBounce,
+                                delayAbyss, delayMix };
+
+        setParam (proc, delayOn, 1.0f);
 
         juce::AudioBuffer<float> block (2, kBlockSize);
         juce::MidiBuffer midi;
@@ -557,8 +659,9 @@ int runCheck()
             worstPeak = juce::jmax (worstPeak, s.peak);
         }
 
-        std::cout << "  peak while sweeping 12 parameters every block: " << worstPeak
-                  << std::endl;
+        std::cout << "  peak while sweeping "
+                  << (int) (sizeof (swept) / sizeof (swept[0]))
+                  << " parameters every block: " << worstPeak << std::endl;
         expect (finite && worstPeak < 2.0f,
                 "stays finite and bounded with parameters sweeping every block");
     }
@@ -711,30 +814,598 @@ int runCheck()
                 "one ping does not quietly fade away over five minutes");
     }
 
+    // ---- 17. the delay is inert while it is switched off ---------------------
+    // Same contract the feedback control has: the section is off in every preset that
+    // predates it and off by default, so a session saved before it existed has to
+    // reload sounding identical - not close, identical.
+    {
+        auto render = [&] (bool wildSettings)
+        {
+            neutral (proc);
+            setParam (proc, decay, 60.0f);
+            setParam (proc, shimmer, 40.0f);
+
+            if (wildSettings)
+            {
+                setParam (proc, delayFeed, 95.0f);
+                setParam (proc, delaySpread, 100.0f);
+                setParam (proc, delayShimmer, 100.0f);
+                setParam (proc, delayWobble, 100.0f);
+                setParam (proc, delayAbyss, 100.0f);
+                setParam (proc, delayTime, 90.0f);
+            }
+
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 2.0));
+            buffer.clear();
+            fillNoise (buffer, 0.4f, 0, (int) (kSampleRate * 0.5));
+            runThrough (proc, buffer);
+            return buffer;
+        };
+
+        const auto quiet = render (false);
+        const auto wild  = render (true);
+
+        auto worst = 0.0f;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int n = 0; n < quiet.getNumSamples(); ++n)
+                worst = juce::jmax (worst, std::abs (quiet.getSample (ch, n)
+                                                         - wild.getSample (ch, n)));
+
+        expect (worst == 0.0f, "the delay section is bit-identical to absent while off");
+    }
+
+    // ---- 18. the repeat lands where the time control says --------------------
+    // A delay whose time is out by a factor of anything is useless for the one job it
+    // has, and by ear a 300 ms repeat and a 340 ms repeat are indistinguishable until
+    // you try to play in time with one.
+    {
+        auto repeatAtMs = [&] (float timeMs)
+        {
+            neutral (proc);
+            setParam (proc, decay, 0.0f);          // keep the reverb tail out of the way
+            setParam (proc, diffusion, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, timeMs);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 2.5));
+            buffer.clear();
+            fillNoise (buffer, 0.5f, 0, (int) (kSampleRate * 0.02));
+            runThrough (proc, buffer);
+
+            const auto window = (int) (kSampleRate * 0.005);
+            auto bestRms = 0.0f;
+            auto bestStart = 0;
+
+            for (int start = (int) (kSampleRate * 0.15);
+                 start + window < buffer.getNumSamples(); start += window)
+            {
+                const auto r = analyse (buffer, start, window).rms;
+
+                if (r > bestRms)
+                {
+                    bestRms = r;
+                    bestStart = start;
+                }
+            }
+
+            return 1000.0f * (float) bestStart / (float) kSampleRate;
+        };
+
+        const auto shortRepeat = repeatAtMs (300.0f);
+        const auto longRepeat  = repeatAtMs (900.0f);
+
+        std::cout << "  repeat measured at " << juce::String (shortRepeat, 1)
+                  << " ms and " << juce::String (longRepeat, 1)
+                  << " ms for 300 ms and 900 ms" << std::endl;
+
+        expect (std::abs (shortRepeat - 300.0f) < 25.0f
+                    && std::abs (longRepeat - 900.0f) < 40.0f,
+                "the delay puts its repeat where the time control says");
+    }
+
+    // ---- 19. the delay's own shimmer transposes ------------------------------
+    // The reverb's shimmer has its own check above; this is a separate pitch path in a
+    // separate feedback loop and it can break on its own.
+    {
+        auto octaveRatioFor = [&] (float shimmerPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 250.0f);
+            setParam (proc, delayFeed, 85.0f);
+            setParam (proc, delayShimmer, shimmerPercent);
+            setParam (proc, delayPitch, 12.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 3.0));
+            buffer.clear();
+            fillSine (buffer, 500.0, 0.5f, 0, (int) kSampleRate);
+            runThrough (proc, buffer);
+
+            const auto start = (int) (kSampleRate * 1.5);
+            const auto n = (int) kSampleRate;
+            return magnitudeAt (buffer, 1000.0, start, n)
+                       / (magnitudeAt (buffer, 500.0, start, n) + 1.0e-9f);
+        };
+
+        const auto without = octaveRatioFor (0.0f);
+        const auto with    = octaveRatioFor (90.0f);
+
+        std::cout << "  delay octave-to-fundamental ratio - shimmer off: " << without
+                  << ", shimmer 90 %: " << with << std::endl;
+
+        expect (with > without * 4.0f, "the delay's shimmer transposes its repeats");
+    }
+
+    // ---- 20. the delay sustains without running away -------------------------
+    // Feedback at maximum is over unity here too, so this is the same question the
+    // reverb's feedback answers: still going a minute later, and still bounded.
+    {
+        neutral (proc);
+        setParam (proc, decay, 25.0f);
+        setParam (proc, delayOn, 1.0f);
+        setParam (proc, delayTime, 800.0f);
+        setParam (proc, delayFeed, 100.0f);
+        setParam (proc, delaySpread, 70.0f);
+        setParam (proc, delayShimmer, 30.0f);
+        setParam (proc, delayTone, 35.0f);
+        setParam (proc, delayWobble, 30.0f);
+        proc.reset();
+
+        juce::AudioBuffer<float> excite (2, (int) (kSampleRate * 2.0));
+        fillNoise (excite, 0.6f, 0, excite.getNumSamples());
+        runThrough (proc, excite);
+
+        juce::Array<float> perSecond;
+        juce::AudioBuffer<float> second (2, (int) kSampleRate);
+        auto finite = true;
+        auto worstPeak = 0.0f;
+
+        for (int t = 0; t < 120; ++t)
+        {
+            second.clear();
+            runThrough (proc, second);
+            const auto s = analyse (second);
+            perSecond.add (s.rms);
+            finite = finite && s.finite;
+            worstPeak = juce::jmax (worstPeak, s.peak);
+        }
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        std::cout << "  regenerating delay at 5/30/60/120 s: ";
+        for (auto sec : { 5, 30, 60, 120 })
+            std::cout << juce::String (db (perSecond[sec - 1]), 1) << " ";
+        std::cout << "dBFS (peak " << worstPeak << ")" << std::endl;
+
+        expect (finite && worstPeak < 2.0f, "the regenerating delay stays finite and bounded");
+        expect (db (perSecond[119]) > -30.0f, "the delay is still audible two minutes later");
+        expect (db (perSecond[119]) - db (perSecond[4]) > -12.0f,
+                "the delay does not quietly fade away over two minutes");
+    }
+
+    // ---- 21. the abyss really drags the repeats downward ----------------------
+    // The control that takes the section from delicate to a black hole. What it has to
+    // do audibly is move every pass down in pitch; if it only distorted, half of what
+    // the knob is for would be missing and nothing else here would notice.
+    {
+        auto belowRatioFor = [&] (float abyssPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 200.0f);
+            setParam (proc, delayFeed, 88.0f);
+            setParam (proc, delayAbyss, abyssPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 4.0));
+            buffer.clear();
+            fillSine (buffer, 800.0, 0.5f, 0, (int) (kSampleRate * 0.5));
+            runThrough (proc, buffer);
+
+            // Two seconds in, ten passes have happened. At full abyss the source should
+            // have fallen most of two octaves; with it off nothing should have moved.
+            const auto start = (int) (kSampleRate * 2.0);
+            const auto n = (int) kSampleRate;
+            return magnitudeAt (buffer, 300.0, start, n)
+                       / (magnitudeAt (buffer, 800.0, start, n) + 1.0e-9f);
+        };
+
+        const auto without = belowRatioFor (0.0f);
+        const auto with    = belowRatioFor (100.0f);
+
+        std::cout << "  energy below the source after ten passes - abyss off: " << without
+                  << ", abyss 100 %: " << with << std::endl;
+
+        expect (with > without * 4.0f, "abyss drags the repeats below the source");
+    }
+
+    // ---- 22. shimmer does not quietly change the loop gain -------------------
+    // The exact bug the reverb's shimmer compensation had, in the exact place it would
+    // reappear: a pitch-shifted copy is decorrelated from its source, so blending it in
+    // by amplitude loses power, and the delay dies at feedback settings that measure
+    // perfectly with shimmer at zero. Below unity on purpose, so the governor is not
+    // holding both cases at the same ceiling and hiding the difference.
+    {
+        auto tailAfter20s = [&] (float shimmerPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 500.0f);
+            setParam (proc, delayFeed, 88.0f);
+            setParam (proc, delayShimmer, shimmerPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> excite (2, (int) kSampleRate);
+            fillNoise (excite, 0.4f, 0, excite.getNumSamples());
+            runThrough (proc, excite);
+
+            juce::AudioBuffer<float> silence (2, (int) (kSampleRate * 20.0));
+            silence.clear();
+            runThrough (proc, silence);
+
+            return analyse (silence, (int) (kSampleRate * 19.0), (int) kSampleRate).rms;
+        };
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        const auto flat  = tailAfter20s (0.0f);
+        const auto risen = tailAfter20s (90.0f);
+
+        std::cout << "  tail after 20 s at 88 % feedback - shimmer 0 %: "
+                  << juce::String (db (flat), 1) << " dBFS, shimmer 90 %: "
+                  << juce::String (db (risen), 1) << " dBFS" << std::endl;
+
+        expect (std::abs (db (risen) - db (flat)) < 8.0f,
+                "shimmer leaves the delay's loop gain where the feedback control put it");
+    }
+
+    // ---- 23. the early field is a room, not a level --------------------------
+    // What Space has to do is put reflections in the first tenth of a second, where the
+    // ear reads the size of a room - and not simply make the reverb louder, which is
+    // what every "depth" control that is secretly a gain does.
+    {
+        struct Field { float early, late; };
+
+        auto fieldFor = [&] (float spacePercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 70.0f);
+            setParam (proc, size, 70.0f);
+            setParam (proc, space, spacePercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 3.0));
+            buffer.clear();
+            fillNoise (buffer, 0.5f, 0, (int) (kSampleRate * 0.005));
+            runThrough (proc, buffer);
+
+            Field f;
+            f.early = analyse (buffer, (int) (kSampleRate * 0.010),
+                               (int) (kSampleRate * 0.130)).rms;
+            f.late  = analyse (buffer, (int) (kSampleRate * 1.5),
+                               (int) (kSampleRate * 0.5)).rms;
+            return f;
+        };
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        const auto dry = fieldFor (0.0f);
+        const auto room = fieldFor (80.0f);
+
+        std::cout << "  first 140 ms: " << juce::String (db (dry.early), 1) << " -> "
+                  << juce::String (db (room.early), 1) << " dBFS, tail at 1.5 s: "
+                  << juce::String (db (dry.late), 1) << " -> "
+                  << juce::String (db (room.late), 1) << " dBFS" << std::endl;
+
+        expect (room.early > dry.early * 1.8f, "Space puts reflections in front of the tail");
+        expect (std::abs (db (room.late) - db (dry.late)) < 6.0f,
+                "Space adds a room rather than a level");
+    }
+
+    // ---- 24. the reverb's own dry/wet ----------------------------------------
+    {
+        auto wetFor = [&] (float reverbPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 60.0f);
+            setParam (proc, space, 50.0f);
+            setParam (proc, reverbLevel, reverbPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 2.0));
+            buffer.clear();
+            fillNoise (buffer, 0.4f, 0, (int) (kSampleRate * 0.5));
+            runThrough (proc, buffer);
+            return analyse (buffer, (int) kSampleRate, (int) kSampleRate).rms;
+        };
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        const auto full = wetFor (100.0f);
+        const auto half = wetFor (50.0f);
+        const auto none = wetFor (0.0f);
+
+        std::cout << "  reverb at 100/50/0 %: " << juce::String (db (full), 1) << " "
+                  << juce::String (db (half), 1) << " " << juce::String (db (none), 1)
+                  << " dBFS" << std::endl;
+
+        expect (std::abs (db (half) - db (full) + 6.0f) < 1.5f,
+                "the reverb control is a straight level over the network and its room");
+        expect (none < 1.0e-6f, "at 0 % the reverb is gone and only the delay is left");
+    }
+
+    // ---- 25. a session saved before Space existed reloads without it ----------
+    // The one control here whose default is not its inert position, so it is also the
+    // one that needs a migration - and a migration nobody tests is a migration that
+    // silently stops working the next time the state format is touched.
+    {
+        neutral (proc);
+        setParam (proc, space, 70.0f);
+        setParam (proc, decay, 66.0f);
+
+        juce::MemoryBlock current;
+        proc.getStateInformation (current);
+
+        auto xml = juce::AudioProcessor::getXmlFromBinary (current.getData(),
+                                                           (int) current.getSize());
+        auto removed = false;
+
+        if (xml != nullptr)
+        {
+            for (auto* child : xml->getChildWithTagNameIterator ("PARAM"))
+                if (child->getStringAttribute ("id") == space)
+                {
+                    xml->removeChildElement (child, true);
+                    removed = true;
+                    break;
+                }
+        }
+
+        expect (removed, "the state names its parameters one by one");
+
+        if (removed)
+        {
+            juce::MemoryBlock older;
+            juce::AudioProcessor::copyXmlToBinary (*xml, older);
+
+            setParam (proc, space, 95.0f);   // so a restore that does nothing cannot pass
+            proc.setStateInformation (older.getData(), (int) older.getSize());
+
+            const auto restored = proc.getState().getRawParameterValue (space)->load();
+            const auto decayKept = proc.getState().getRawParameterValue (decay)->load();
+
+            std::cout << "  space after loading a state that predates it: " << restored
+                      << " %" << std::endl;
+
+            expect (restored == 0.0f, "a state without Space reloads with the early field off");
+            expect (std::abs (decayKept - 66.0f) < 0.01f,
+                    "and the rest of that state still arrives intact");
+        }
+    }
+
+    // ---- 26. a very short delay still rings ----------------------------------
+    // Twenty-five milliseconds is forty passes a second, so anything that costs a
+    // fraction of a dB per pass costs tens of dB a second down there. Everything
+    // cumulative in the loop is scaled by the spacing for exactly this reason, and this
+    // is the check that says so: the same feedback setting has to hold a short delay up
+    // as well as it holds a long one.
+    {
+        auto stillThereAfter = [&] (float timeMs, float seconds)
+        {
+            neutral (proc);
+            setParam (proc, decay, 25.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, timeMs);
+            setParam (proc, delayFeed, 95.0f);
+            setParam (proc, delayTone, 50.0f);
+            setParam (proc, delayShimmer, 30.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> excite (2, (int) (kSampleRate * 0.5));
+            fillNoise (excite, 0.5f, 0, excite.getNumSamples());
+            runThrough (proc, excite);
+
+            juce::AudioBuffer<float> silence (2, (int) (kSampleRate * seconds));
+            silence.clear();
+            runThrough (proc, silence);
+
+            return analyse (silence, (int) (kSampleRate * (seconds - 1.0)), (int) kSampleRate).rms;
+        };
+
+        auto db = [] (float v) { return juce::Decibels::gainToDecibels (juce::jmax (1.0e-9f, v)); };
+
+        const auto shortTime = stillThereAfter (25.0f, 10.0);
+        const auto longTime  = stillThereAfter (600.0f, 10.0);
+
+        std::cout << "  ringing ten seconds on - 25 ms: " << juce::String (db (shortTime), 1)
+                  << " dBFS, 600 ms: " << juce::String (db (longTime), 1) << " dBFS" << std::endl;
+
+        expect (db (shortTime) > -40.0f, "a 25 ms delay still rings ten seconds later");
+        expect (db (shortTime) - db (longTime) > -20.0f,
+                "the short setting holds up comparably to a long one");
+    }
+
+    // ---- 27. morph moves the repeats off the note they came in on -------------
+    {
+        auto offPitchFor = [&] (float morphPercent)
+        {
+            neutral (proc);
+            setParam (proc, decay, 0.0f);
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 220.0f);
+            setParam (proc, delayFeed, 88.0f);
+            setParam (proc, delayShimmer, 70.0f);
+            setParam (proc, delayPitch, 0.0f);      // the only thing moving is Morph
+            setParam (proc, delayMorph, morphPercent);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 6.0));
+            buffer.clear();
+            fillSine (buffer, 600.0, 0.5f, 0, (int) (kSampleRate * 0.5));
+            runThrough (proc, buffer);
+
+            // How much of what is left sits anywhere but on the note that went in.
+            const auto start = (int) (kSampleRate * 2.0);
+            const auto n = (int) (kSampleRate * 2.0);
+            const auto onNote = magnitudeAt (buffer, 600.0, start, n);
+            const auto elsewhere = magnitudeAt (buffer, 480.0, start, n)
+                                     + magnitudeAt (buffer, 760.0, start, n)
+                                     + magnitudeAt (buffer, 900.0, start, n);
+
+            return elsewhere / (onNote + 1.0e-9f);
+        };
+
+        const auto still  = offPitchFor (0.0f);
+        const auto moving = offPitchFor (85.0f);
+
+        std::cout << "  energy away from the source note - morph off: " << still
+                  << ", morph 85 %: " << moving << std::endl;
+
+        expect (moving > still * 3.0f, "morph slides the repeats onto other pitches");
+    }
+
+    // ---- 28. the ball bounces -------------------------------------------------
+    // One strike in, and the gaps between the repeats have to shrink - geometrically,
+    // and without the pitch running away with them, which is the whole reason the
+    // spacing is stepped and crossfaded rather than swept.
+    {
+        auto gapsFor = [&] (float bouncePercent)
+        {
+            neutral (proc);
+            setParam (proc, reverbLevel, 0.0f);   // nothing in the wet path but the delay
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delayTime, 400.0f);
+            setParam (proc, delayBounce, bouncePercent);
+            setParam (proc, delayFeed, 94.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 6.0));
+            buffer.clear();
+            fillNoise (buffer, 0.7f, 0, (int) (kSampleRate * 0.001));   // one click
+            runThrough (proc, buffer);
+
+            const auto times = repeatTimesMs (buffer, 24.0f);
+            juce::Array<float> gaps;
+
+            for (int i = 1; i < times.size(); ++i)
+                gaps.add (times[i] - times[i - 1]);
+
+            return gaps;
+        };
+
+        const auto still = gapsFor (0.0f);
+        const auto falling = gapsFor (70.0f);
+        const auto rising = gapsFor (-70.0f);
+
+        auto describe = [] (const juce::Array<float>& gaps)
+        {
+            juce::String s;
+            for (int i = 0; i < juce::jmin (6, gaps.size()); ++i)
+                s += juce::String (juce::roundToInt (gaps[i])) + " ";
+            return s;
+        };
+
+        std::cout << "  gaps with bounce off:  " << describe (still) << "ms" << std::endl;
+        std::cout << "  gaps bouncing down:    " << describe (falling) << "ms  ("
+                  << falling.size() << " repeats in six seconds)" << std::endl;
+        std::cout << "  gaps bouncing up:      " << describe (rising) << "ms" << std::endl;
+
+        expect (still.size() >= 8 && std::abs (still[7] - still[0]) < 12.0f,
+                "with bounce off the repeats are evenly spaced");
+
+        expect (falling.size() > still.size(),
+                "bouncing down fits more repeats into the same six seconds");
+
+        expect (falling.size() >= 8 && falling[7] < falling[0] * 0.75f,
+                "and every repeat lands sooner than the one before it");
+
+        expect (rising.size() >= 4 && rising[3] > rising[0] * 1.15f,
+                "negative bounce spreads the repeats apart instead");
+    }
+
+    // ---- 29. bouncing does not run the pitch away -----------------------------
+    // A swept delay line is a pitch shift, and inside a feedback loop it compounds once
+    // per pass - which is a siren, not a ball. The steps are crossfaded between two
+    // fixed read heads precisely so this stays put.
+    {
+        neutral (proc);
+        setParam (proc, reverbLevel, 0.0f);
+        setParam (proc, delayOn, 1.0f);
+        setParam (proc, delayTime, 400.0f);
+        // Gently, so the measurement lands while the ball is still bouncing: wound
+        // right up it reaches the floor in a couple of seconds and what is left is a
+        // twenty-millisecond comb, whose spectrum is its own business and has nothing
+        // to say about whether the steps moved the pitch.
+        setParam (proc, delayBounce, 45.0f);
+        setParam (proc, delayFeed, 94.0f);
+        proc.reset();
+
+        juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 6.0));
+        buffer.clear();
+        fillSine (buffer, 400.0, 0.6f, 0, (int) (kSampleRate * 0.25));
+        runThrough (proc, buffer);
+
+        // Four seconds and a dozen bounces later, the note has to still be the note. A
+        // tenth of a semitone per pass would be four octaves by here.
+        const auto start = (int) (kSampleRate * 4.0);
+        const auto n = (int) kSampleRate;
+        const auto onNote = magnitudeAt (buffer, 400.0, start, n);
+        const auto aboveIt = magnitudeAt (buffer, 500.0, start, n)
+                               + magnitudeAt (buffer, 630.0, start, n)
+                               + magnitudeAt (buffer, 800.0, start, n);
+
+        std::cout << "  after four seconds of bouncing - on the note: " << onNote
+                  << ", above it: " << aboveIt << std::endl;
+
+        expect (onNote > aboveIt, "the bouncing repeats stay on the note they came in on");
+    }
+
     // ---- CPU cost ------------------------------------------------------------
     {
         constexpr double seconds = 60.0;
-        neutral (proc);
-        setParam (proc, shimmer, 50.0f);
-        setParam (proc, mass, 30.0f);
-        proc.reset();
 
-        juce::AudioBuffer<float> buffer (2, kBlockSize);
-        fillSine (buffer, 500.0, 0.3f);
+        auto costOf = [&] (bool withDelay)
+        {
+            neutral (proc);
+            setParam (proc, shimmer, 50.0f);
+            setParam (proc, mass, 30.0f);
+            setParam (proc, space, 40.0f);   // what a fresh instance runs
+            setParam (proc, delayOn, withDelay ? 1.0f : 0.0f);
+            setParam (proc, delayFeed, 60.0f);
+            setParam (proc, delayShimmer, 40.0f);
+            setParam (proc, delayAbyss, 30.0f);
+            proc.reset();
 
-        juce::MidiBuffer midi;
-        const auto start = juce::Time::getHighResolutionTicks();
+            juce::AudioBuffer<float> buffer (2, kBlockSize);
+            fillSine (buffer, 500.0, 0.3f);
 
-        for (int done = 0; done < (int) (seconds * kSampleRate); done += kBlockSize)
-            proc.processBlock (buffer, midi);
+            juce::MidiBuffer midi;
+            const auto start = juce::Time::getHighResolutionTicks();
 
-        const auto elapsed = juce::Time::highResolutionTicksToSeconds (
-                                 juce::Time::getHighResolutionTicks() - start);
+            for (int done = 0; done < (int) (seconds * kSampleRate); done += kBlockSize)
+                proc.processBlock (buffer, midi);
+
+            return juce::Time::highResolutionTicksToSeconds (
+                       juce::Time::getHighResolutionTicks() - start);
+        };
+
+        const auto bare = costOf (false);
+        const auto full = costOf (true);
 
         std::cout << "\n" << seconds << " s of stereo processed in "
-                  << juce::String (elapsed, 3) << " s  ("
-                  << juce::String (elapsed / seconds * 100.0, 2)
-                  << " % of one core at " << kSampleRate << " Hz)" << std::endl;
+                  << juce::String (bare, 3) << " s  ("
+                  << juce::String (bare / seconds * 100.0, 2)
+                  << " % of one core at " << kSampleRate << " Hz), and in "
+                  << juce::String (full, 3) << " s  ("
+                  << juce::String (full / seconds * 100.0, 2)
+                  << " %) with the delay engaged" << std::endl;
     }
 
     std::cout << (failures == 0 ? "\nall checks passed"

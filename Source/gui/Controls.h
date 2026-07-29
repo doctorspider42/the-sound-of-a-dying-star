@@ -44,6 +44,30 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (FreezePill)
 };
 
+/** Latching switch for a whole section. The same idea as the freeze pill with none of
+    the ceremony: a section that can be switched off has to say which it is at a glance,
+    but it should not shout louder than the control that stops time. */
+class EngagePill final : public juce::Button,
+                         private juce::Timer
+{
+public:
+    EngagePill (juce::AudioProcessorValueTreeState& state, const juce::String& parameterID,
+                const juce::String& caption, juce::Colour accent);
+    ~EngagePill() override;
+
+private:
+    void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+    void buttonStateChanged() override;
+    void timerCallback() override;
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> attachment;
+    juce::String caption;
+    juce::Colour accent;
+    float lit = 0.0f;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EngagePill)
+};
+
 /** Horizontal readout of how much energy is still circulating in the network. With
     decay near the top, or frozen, this is the only way to see that the tail is still
     alive after the source has stopped. */

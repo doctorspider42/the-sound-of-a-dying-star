@@ -1,8 +1,9 @@
 # The Sound of a Dying Star
 
-A cosmic shimmer reverb for ambient work. Feedback delay network, pitch-shifted feedback
-paths and a soft clipper inside the loop — so the same instrument covers a barely-there
-halo over a pad and the sub-heavy roar of something collapsing.
+A cosmic shimmer reverb for ambient work, with a delay in front of it that is built the
+same way. Feedback delay network, pitch-shifted feedback paths and a soft clipper inside
+every loop — so the same instrument covers a barely-there halo over a pad and the
+sub-heavy roar of something collapsing.
 
 VST3 and standalone, Windows and Linux.
 
@@ -11,7 +12,7 @@ VST3 and standalone, Windows and Linux.
 ## What it does
 
 The core is an 8-line feedback delay network with a Hadamard mixing matrix. Three things
-are wrapped around it, and between them they are the whole plug-in:
+are wrapped around it, and between them they are the reverb:
 
 - **A shimmer path.** The network's output is pitch-shifted and fed back in, so the tail
   climbs an octave (or whatever interval you set) each time round. Two voices, detuned
@@ -21,6 +22,9 @@ are wrapped around it, and between them they are the whole plug-in:
 - **A soft clipper inside the loop.** Linear below its threshold, so at low **Collapse**
   it colours nothing and simply guarantees that no combination of controls can run away.
   Driven hard, it *is* the collapse — the tail compresses, distorts and turns into a roar.
+
+In front of all of it sits a stereo delay built out of the same parts — [its own section
+below](#the-echo).
 
 **Decay** runs from a quarter of a second to sixty; past 99 % it stops decaying at all.
 **Freeze** opens the loop filters and holds what is in the network — measured at less
@@ -52,30 +56,140 @@ sessions saved before it existed sounding the same.
 Zero latency. No oversampling, no lookahead, so bypass is a straight pass-through and the
 dry path is bit-identical at 0 % mix.
 
+## The echo
+
+The **Echo** section is a stereo delay sitting in front of the network, inside the wet
+path — so Mix still means what it says and the dry signal never goes near it. Its output
+goes two ways at once: straight to the output, where it stays a repeat you can count, and
+through the diffusers into the reverb, where it blooms.
+
+The feedback path is the part that matters. A repeat is darkened, transposed up by a
+shimmer voice, dragged down by a second one, wobbled by two slow modulators and run
+through the same soft clipper the reverb uses — so nothing ever comes back the way it
+left, and the line can run at unity, or a little past it, without ever settling into a
+loop of the same sound.
+
+| Control | What it does |
+|---|---|
+| **Time** | 2 ms to 2 s. Changes glide, so sweeping it warps like tape. |
+| **Bounce** | Right: each repeat lands sooner than the last. Left: they spread apart. |
+| **Feedback** | Past unity at the top, where the repeats stop ending. |
+| **Spread** | An orthogonal rotation between the channels: at 0 % a stereo dual delay, at 100 % the repeats bounce. |
+| **Shimmer** · **Pitch** | How much of each pass comes back transposed, and by how far. |
+| **Morph** | How far the pitch voices wander off that interval, and keep wandering. |
+| **Tone** | How fast the repeats go dark. |
+| **Wobble** | Movement on the read heads, scaled with the delay time. |
+| **Abyss** | Downward drag plus drive. The delicate-to-black-hole control. |
+| **Mix** | How present the whole section is, direct and through the reverb both. |
+
+**Time** goes down to 2 ms, which is not an echo at all — down there the line is a comb
+filter and **Feedback** is its resonance. That end of the range only works because
+everything cumulative in the loop is scaled by the spacing: at 25 ms a pass happens forty
+times a second, so a per-pass darkening, drag or governor trim that is gentle on a
+half-second repeat would be thirty dB a second on a short one. Scale it and the same
+feedback setting holds both. Measured: after ten seconds of ringing, a 25 ms setting sits
+at −26.8 dBFS and a 600 ms setting at −26.4.
+
+**Bounce** is a dropped thing. Each repeat takes a fixed percentage off the gap before
+the next one, so the spacing runs down geometrically and one strike turns into
+*pim… pim… pim, pim pim pimpimpim*. An onset restarts it, so the next thing played drops
+from the top again rather than arriving into a rattle.
+
+It is stepped between repeats and crossfaded between two fixed read heads, never swept.
+Sweeping a recirculating delay line is a pitch shift, and a pitch shift inside a feedback
+loop compounds once per pass — a fraction of a semitone becomes four octaves in a few
+seconds, which is a siren, not a ball. Stepped, the note stays exactly where it was:
+measured four seconds and two dozen bounces in, the source pitch is still 33 dB above
+anything around it. The steps land in the middle of the gaps rather than on the repeats,
+because on the repeat a step that goes the other way lands just behind one and plays it
+twice.
+
+Measured, one click into a 400 ms delay at Bounce 70 %: gaps of 353, 312, 275, 242, 214,
+189 ms. At −70 % the same click gives 447, 500, 558, 624, 698, 779.
+
+A run-down takes about one gap divided by the contraction, so the control has to cover a
+two-second spacing as well as a fifty-millisecond one. At the top of it, two seconds runs
+down to a rattle in eight; at 45 % — where *Free Fall* sits — seven hundred milliseconds
+takes about fifteen seconds to get there and another two to die out.
+
+**Morph** is what stops a long-running delay turning into a chord. Four slow modulators
+that share no factors move the two pitch voices around, up to a fifth either way, so a
+repeat is transposed by whatever the shimmer voice happened to be doing when it passed
+through — and the next one by something else. Wound up with **Shimmer**, the repeats
+glide between intervals instead of stacking on one. It is the setting the *Photon Sphere*
+preset is built on: 18 ms, feedback near the top, and the resonance sliding.
+
+**Abyss** is the one to reach for when a delay is not supposed to be tidy. Wind it up and
+every pass lands flatter than the last — a little over two and a half semitones at the
+top — darker, and harder into the clipper, until what comes back is a downward spiral
+rather than an echo. `devtool check` measures the fall: feed it one tone, and ten passes
+later there is several hundred times more energy well below that tone than the same run
+with the control at zero.
+
+The section is off by default and, while it is off, provably inert — bit-identical to a
+build without it — so nothing saved before it existed changed.
+
+![The Free Fall preset: one strike bouncing itself to a standstill](docs/panel-free-fall.png)
+
+## The room
+
+A feedback delay network builds a beautiful diffuse wash, but it arrives as a wash — it
+has no beginning. A real hall hands you a handful of discrete reflections off the near
+walls first, and the ear reads the pattern of those as the size of the room and your
+distance from the far end of it. Take them away and every space sounds like the inside of
+a cloud, which is what people mean when they say a reverb is flat.
+
+**Space** is that early field: nine taps per channel, no two the same and the two sets
+sharing no ratios, each one a little quieter and duller than the last, then a pair of
+all-passes so they read as reflections rather than as nine copies of the source. The taps
+move out with **Size**, so the room and the tail agree on how big the place is. It goes
+to the output and, at half the level, into the network — the tail then grows out of the
+reflection pattern instead of fading up out of nothing.
+
+It is a room and not a level: `devtool check` measures 5 dB more energy in the first
+140 ms with Space at 80 %, and the tail a second and a half later within half a dB of
+where it was.
+
+**Reverb** is the network's own dry/wet, sitting next to it. The **Mix** control in
+Emission is still the balance against the dry signal; this one is the balance between the
+space and the delay inside the wet path. At 0 % the reverb disappears and the Echo
+section is all that is left, which is how to use this as a delay with a reverb attached
+rather than the other way round.
+
+Space is the one control in the plug-in whose default is not its inert position — a new
+instance opens with a room, because that is the point. A session saved before the early
+field existed is migrated to 0 % explicitly when it loads, so it reloads sounding exactly
+as it was saved.
+
 ### The controls
 
 | Group | Controls |
 |---|---|
-| **Gravity** | Pre-Delay · Size · Decay · Diffusion |
+| **Gravity** | Pre-Delay · Size · Space · Decay · Diffusion · Reverb |
 | **Spectrum** | Low Cut · High Cut · Damping · Width |
 | **Drift** | Shimmer · Pitch · Detune · Mod Rate · Mod Depth |
 | **Collapse** | Collapse · Mass |
+| **Echo** | Engage · Time · Bounce · Feedback · Spread · Shimmer · Pitch · Morph · Tone · Wobble · Abyss · Mix |
 | **Emission** | Freeze · Feedback · Mix · Output |
 
 **Size** is mapped logarithmically and runs a long way past room-sized: at the top the
 eight lines are over half a second each. That is long enough that the network stops
-behaving like a reverb and starts behaving like a multi-tap delay, which is why there is
-no separate delay section — these were always delay lines, they just needed permission to
-be long. Size high, **Diffusion** low and **Feedback** up is the one-note-and-walk-away
-setting; the *Light Echo* preset is exactly that.
+behaving like a reverb and starts behaving like a multi-tap delay — the Echo section is
+for repeats you want to place, the Size control is for the ones you want to lose. Size
+high, **Diffusion** low and **Feedback** up is the one-note-and-walk-away setting; the
+*Light Echo* preset is exactly that.
 
 **Detune** does double duty: it spreads the two shimmer voices apart in cents, and it
 sets the depth of a very slow independent drift on each delay line. That second half is
 what stops a long tail sounding like a static chord.
 
-Ten factory presets span the range, from *Whisper of Light* to *Black Hole Roar*, and
-they are exposed as host programs as well as through the panel. *Heat Death* and
-*Light Echo* are the two meant to be started and left alone.
+Fifteen factory presets span the range, from *Whisper of Light* to *Black Hole Roar*,
+and they are exposed as host programs as well as through the panel. *Heat Death* and
+*Light Echo* are the two meant to be started and left alone. The last five are built
+around the delay: *Slow Light* at the gentle end, *Redshift* for repeats that never stop,
+*Photon Sphere* for an 18 ms line resonating with the pitch sliding around, *Free Fall*
+for one strike bouncing itself to a standstill over about fifteen seconds, and
+*Singularity* with the Abyss almost at maximum.
 
 The star in the middle is driven by the controls and by the signal: its colour is the
 loop's temperature, the accretion disk grows with **Mass**, the disk stops turning when
@@ -84,7 +198,22 @@ middle of it.
 
 ## Building
 
-Needs CMake 3.22+, a C++17 compiler and git.
+Needs CMake 3.22+, a C++17 compiler and git. On Linux and macOS there is a script that
+does the whole thing — configure, build, run the offline checks — and can start what it
+built:
+
+```bash
+./build.sh --run
+```
+
+It only reconfigures when something it depends on has changed, so an ordinary
+edit-and-rebuild is a couple of seconds plus the time the checks take. `--release` adds
+link-time optimisation and stamps the commit into the panel, for a binary you are going
+to hand to someone; `--shot` re-renders `docs/panel.png`; `--clean` starts over;
+`--no-check`, `--no-install` and `--debug` do what they say. `./build.sh --help` lists
+them.
+
+By hand, or on Windows:
 
 ```bash
 git clone --recurse-submodules --shallow-submodules https://github.com/doctorspider42/the-sound-of-a-dying-star.git
@@ -106,6 +235,16 @@ Windows needs Visual Studio 2022 with the Desktop C++ workload.
 `DYINGSTAR_COPY_AFTER_BUILD` is `ON` by default and installs the built VST3 into your
 user plug-in folder. Turn it off for CI or packaging builds.
 
+`DYINGSTAR_LTO` is `OFF` by default and `ON` for the release builds CI publishes. It buys
+a few per cent of CPU in the finished binary and costs minutes on every link — the
+plug-in, the standalone and the tool each re-optimise the whole of JUCE — so with it on,
+changing one line of DSP is a five-minute rebuild instead of a ten-second one. Leave it
+off while working on the code:
+
+```bash
+cmake --build build --parallel      # ~10 s after a one-file change
+```
+
 ## Verifying it without a DAW
 
 `DYINGSTAR_BUILD_TOOLS=ON` builds a console tool that needs neither an audio device nor
@@ -120,10 +259,11 @@ cmake --build build --parallel
 
 `check` asserts, among other things, that the dry path is untouched at 0 % mix, that the
 wet path is level-matched to the dry, that the decay control changes the decay, that
-shimmer really puts energy an octave above the source, that freeze holds for twenty
-seconds, that nothing goes non-finite with every control at maximum, and that all of it
-survives 44.1–192 kHz at block sizes from 16 to 2048. It prints the CPU cost as a number
-so a regression is visible rather than merely suspected.
+shimmer really puts energy an octave above the source, that the delay puts its repeat
+where the time control says, that freeze holds for twenty seconds, that nothing goes
+non-finite with every control at maximum, and that all of it survives 44.1–192 kHz at
+block sizes from 16 to 2048. It prints the CPU cost as a number, with and without the
+delay engaged, so a regression is visible rather than merely suspected.
 
 `shot` renders the editor to a PNG with no window and no display server, which is how the
 screenshots in this README are made and how a panel that fails to paint fails the build.
@@ -170,11 +310,22 @@ Verified on every push, on both platforms, by `devtool check` — and CI additio
   after a loud passage, and is provably inert at 0 %
 - a single 40 ms plucked note, with shimmer and damping engaged, is still within a few
   dB of its peak five minutes later
+- the delay lands its repeat within 25 ms of where the time control says, transposes it
+  when asked to, drags it below the source when Abyss is up, still sustains two minutes
+  after the source stopped, and is bit-identical to absent while switched off
+- turning the delay's shimmer up does not quietly turn its loop gain down
+- a 25 ms delay rings as long as a 600 ms one at the same feedback setting
+- Bounce contracts the gaps between repeats geometrically, expands them the other way,
+  leaves them alone at zero, and does not move the pitch while doing any of it
+- Morph moves the repeats onto other pitches, and Space adds reflections in front of the
+  tail without adding level to it
+- the reverb's dry/wet is a straight level, and a state saved before Space existed
+  reloads with the early field off and everything else intact
 - nothing goes non-finite with every control at maximum, across 44.1–192 kHz and block
   sizes from 16 to 2048, in mono and in stereo
 - every parameter survives a state save/reload round-trip
 - the editor constructs, paints and is destroyed repeatedly without falling over
-- twelve parameters sweeping every block stays bounded
+- twenty-four parameters sweeping every block stays bounded
 
 **Not** verified, because no automated check can: how it behaves inside a specific DAW.
 Worth ten minutes in your host of choice before trusting it in a session — automation

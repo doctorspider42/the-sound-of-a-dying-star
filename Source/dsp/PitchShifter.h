@@ -39,9 +39,10 @@ public:
     void prepare (double sr, float windowMs = 90.0f)
     {
         sampleRate = sr;
-        window = (float) (windowMs * 0.001 * sr);
-        line.prepare ((int) (window * 2.0f) + 64);
+        maxWindow = (float) (windowMs * 0.001 * sr);
+        line.prepare ((int) (maxWindow * 2.0f) + 64);
         smoothedRatio.prepare (sr, 60.0f, 1.0f);
+        smoothedWindow.prepare (sr, 120.0f, maxWindow);
         phase = 0.0f;
     }
 
@@ -50,6 +51,7 @@ public:
         line.reset();
         phase = 0.0f;
         smoothedRatio.reset (smoothedRatio.getTarget());
+        smoothedWindow.reset (smoothedWindow.getTarget());
     }
 
     /** Semitones plus a cents offset, so shimmer intervals and detune stay separate
@@ -59,11 +61,25 @@ public:
         smoothedRatio.setTarget (semisToRatio (semitones) * centsToRatio (cents));
     }
 
+    /** Shortens the window below what was allocated. The window is how far the read
+        head travels before it has to jump, so it is also how much this smears: leave it
+        at the prepared length for a reverb tail, and pull it in when the shifter sits
+        inside a delay short enough that a 90 ms smear would blur four repeats into one.
+        Smoothed, because the phase lives inside the window and a step change in it is a
+        step change in where the read head is. */
+    void setWindow (float windowSamples) noexcept
+    {
+        smoothedWindow.setTarget (clamp (windowSamples, 48.0f, maxWindow));
+    }
+
+    float getMaxWindow() const noexcept { return maxWindow; }
+
     float process (float x) noexcept
     {
         line.write (killDenormal (x));
         line.advance();
 
+        const auto window = smoothedWindow.next();
         const auto ratio = smoothedRatio.next();
 
         phase += (1.0f - ratio);
@@ -91,9 +107,9 @@ public:
 
 private:
     DelayLine line;
-    Smoothed  smoothedRatio;
+    Smoothed  smoothedRatio, smoothedWindow;
     double sampleRate = 48000.0;
-    float  window = 4096.0f;
+    float  maxWindow = 4096.0f;
     float  phase = 0.0f;
 };
 

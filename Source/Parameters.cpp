@@ -16,6 +16,8 @@
 
 #include "Parameters.h"
 
+#include "dsp/VoidDelay.h"   // the delay's own limits, so the range is stated once
+
 namespace dying
 {
 
@@ -136,6 +138,64 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { pid::bypass, 1 }, "Bypass", false));
 
+    // ---- delay ---------------------------------------------------------------
+    // Off by default, and the whole section is inert in that state, so a session saved
+    // before it existed reloads sounding exactly as it did.
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { pid::delayOn, 1 }, "Delay", false));
+
+    // Two milliseconds at the bottom, which is a comb filter rather than an echo, and
+    // two seconds at the top. The centre sits low so the short half of the range - the
+    // half where the repeats stop being countable - gets half the knob travel.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { pid::delayTime, 1 }, "Delay Time",
+        skewedRange (dsp::kMinDelayMs, dsp::kMaxDelayMs, 180.0f), 420.0f,
+        Attributes().withLabel ("ms")
+                    .withStringFromValueFunction ([] (float v, int)
+                                                  {
+                                                      return v < 10.0f
+                                                           ? juce::String (v, 1)
+                                                           : juce::String (juce::roundToInt (v));
+                                                  })));
+
+    layout.add (percent (pid::delayFeed,    "Delay Feedback", 45.0f));
+    layout.add (percent (pid::delaySpread,  "Delay Spread",   60.0f));
+    layout.add (percent (pid::delayShimmer, "Delay Shimmer",  25.0f));
+
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { pid::delayPitch, 1 }, "Delay Pitch",
+        Range (-24.0f, 24.0f, 1.0f), 12.0f,
+        Attributes().withLabel ("st")
+                    .withStringFromValueFunction ([] (float v, int)
+                                                  {
+                                                      const auto n = juce::roundToInt (v);
+                                                      return (n > 0 ? "+" : "") + juce::String (n);
+                                                  })));
+
+    layout.add (percent (pid::delayTone,   "Delay Tone",   40.0f));
+    layout.add (percent (pid::delayWobble, "Delay Wobble", 25.0f));
+    layout.add (percent (pid::delayAbyss,  "Delay Abyss",   0.0f));
+    layout.add (percent (pid::delayMix,    "Delay Mix",    35.0f));
+    layout.add (percent (pid::delayMorph,  "Delay Morph",  20.0f));
+
+    // Bipolar: to the right the repeats land sooner and sooner, to the left they spread
+    // apart. Zero is a delay whose spacing does not move, which is what a delay is.
+    layout.add (std::make_unique<juce::AudioParameterFloat> (
+        juce::ParameterID { pid::delayBounce, 1 }, "Delay Bounce",
+        Range (-100.0f, 100.0f, 0.1f), 0.0f,
+        Attributes().withLabel ("%")
+                    .withStringFromValueFunction ([] (float v, int) { return juce::String (v, 1); })));
+
+    // ---- the early field ------------------------------------------------------
+    // The one control here whose default is not its inert position. Zero is the reverb
+    // as it was before this existed, and a session saved back then is migrated to it
+    // explicitly - see DyingStarProcessor::setStateInformation - but a fresh instance
+    // gets a room, because a reverb with no early reflections is the thing everybody
+    // describes as lacking depth.
+    layout.add (percent (pid::space, "Space", 40.0f));
+
+    layout.add (percent (pid::reverbLevel, "Reverb", 100.0f));
+
     return layout;
 }
 
@@ -168,6 +228,22 @@ void ParamPointers::attach (juce::AudioProcessorValueTreeState& state)
     output    = get (pid::output);
     freeze    = get (pid::freeze);
     bypass    = get (pid::bypass);
+
+    delayOn      = get (pid::delayOn);
+    delayTime    = get (pid::delayTime);
+    delayFeed    = get (pid::delayFeed);
+    delaySpread  = get (pid::delaySpread);
+    delayShimmer = get (pid::delayShimmer);
+    delayPitch   = get (pid::delayPitch);
+    delayTone    = get (pid::delayTone);
+    delayWobble  = get (pid::delayWobble);
+    delayAbyss   = get (pid::delayAbyss);
+    delayMix     = get (pid::delayMix);
+    delayMorph   = get (pid::delayMorph);
+    delayBounce  = get (pid::delayBounce);
+
+    space        = get (pid::space);
+    reverbLevel  = get (pid::reverbLevel);
 }
 
 } // namespace dying

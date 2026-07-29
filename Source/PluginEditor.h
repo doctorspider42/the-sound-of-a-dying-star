@@ -39,7 +39,7 @@ public:
     /** The panel is designed once at this size and then scaled as a whole, so layout
         code never has to think about the zoom factor. */
     static constexpr int kLogicalWidth  = 1020;
-    static constexpr int kLogicalHeight = 756;
+    static constexpr int kLogicalHeight = 940;
 
 private:
     /** Header, footer and anything else drawn straight onto the content component. */
@@ -67,12 +67,16 @@ private:
     StarView star;
     TailMeter tailMeter;
     FreezePill freeze;
+    EngagePill delayEngage;
     PresetBar presets;
 
-    std::unique_ptr<CosmicKnob> kPreDelay, kSize, kDecay, kDiffusion;
+    std::unique_ptr<CosmicKnob> kPreDelay, kSize, kSpace, kDecay, kDiffusion, kReverb;
     std::unique_ptr<CosmicKnob> kDamping, kLowCut, kHighCut, kWidth;
     std::unique_ptr<CosmicKnob> kShimmer, kPitch, kDetune, kModRate, kModDepth;
     std::unique_ptr<CosmicKnob> kCollapse, kMass;
+    std::unique_ptr<CosmicKnob> kDelayTime, kDelayBounce, kDelayFeed, kDelaySpread,
+                                kDelayShimmer, kDelayPitch, kDelayMorph, kDelayTone,
+                                kDelayWobble, kDelayAbyss, kDelayMix;
     std::unique_ptr<CosmicKnob> kFeedback, kMix, kOutput;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DyingStarEditor)

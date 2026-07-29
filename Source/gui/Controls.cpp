@@ -138,6 +138,103 @@ void FreezePill::paintButton (juce::Graphics& g, bool highlighted, bool down)
 }
 
 // ============================================================================
+//  EngagePill
+// ============================================================================
+
+EngagePill::EngagePill (juce::AudioProcessorValueTreeState& state,
+                        const juce::String& parameterID,
+                        const juce::String& captionText,
+                        juce::Colour accentColour)
+    : juce::Button (captionText), caption (captionText), accent (accentColour)
+{
+    setClickingTogglesState (true);
+    setMouseCursor (juce::MouseCursor::PointingHandCursor);
+
+    attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+                     state, parameterID, *this);
+
+    // Right before the first paint, not after the first timer tick: a headless
+    // screenshot never runs a timer and neither does the frame the user opens on.
+    lit = getToggleState() ? 1.0f : 0.0f;
+}
+
+EngagePill::~EngagePill() = default;
+
+void EngagePill::buttonStateChanged()
+{
+    if (! isTimerRunning() && std::abs ((getToggleState() ? 1.0f : 0.0f) - lit) > 0.01f)
+        startTimerHz (30);
+
+    repaint();
+}
+
+void EngagePill::timerCallback()
+{
+    const auto target = getToggleState() ? 1.0f : 0.0f;
+    lit += (target - lit) * 0.25f;
+
+    if (std::abs (target - lit) < 0.01f)
+    {
+        lit = target;
+        stopTimer();
+    }
+
+    repaint();
+}
+
+void EngagePill::paintButton (juce::Graphics& g, bool highlighted, bool down)
+{
+    auto bounds = getLocalBounds().toFloat().reduced (2.0f);
+    const auto corner = bounds.getHeight() * 0.5f;
+
+    juce::ColourGradient body (juce::Colour (0xff141a30).interpolatedWith (
+                                   accent.withMultipliedBrightness (0.5f), lit * 0.5f),
+                               bounds.getCentreX(), bounds.getY(),
+                               juce::Colour (0xff070a16).interpolatedWith (
+                                   accent.withMultipliedBrightness (0.22f), lit * 0.45f),
+                               bounds.getCentreX(), bounds.getBottom(), false);
+    g.setGradientFill (body);
+    g.fillRoundedRectangle (bounds, corner);
+
+    if (lit > 0.01f)
+    {
+        juce::ColourGradient inner (accent.withAlpha (0.32f * lit),
+                                    bounds.getCentreX(), bounds.getY(),
+                                    accent.withAlpha (0.0f),
+                                    bounds.getCentreX(), bounds.getBottom(), false);
+        g.setGradientFill (inner);
+        g.fillRoundedRectangle (bounds, corner);
+
+        juce::Path outline;
+        outline.addRoundedRectangle (bounds, corner);
+        skin::glowPath (g, outline, accent, 1.2f, 0.5f * lit, 4);
+    }
+
+    g.setColour (accent.withAlpha (0.16f + 0.45f * lit + (highlighted ? 0.14f : 0.0f)));
+    g.drawRoundedRectangle (bounds, corner, 1.1f);
+
+    // A small lamp at the head of the label - the one part of the pill that reads as
+    // on or off from across a room.
+    const auto lamp = juce::Point<float> (bounds.getX() + bounds.getHeight() * 0.62f,
+                                          bounds.getCentreY());
+    if (lit > 0.02f)
+        skin::glowEllipse (g, lamp, 2.6f, accent, 0.85f * lit, 4);
+
+    g.setColour (juce::Colours::white.withAlpha (0.22f + 0.7f * lit));
+    g.fillEllipse (lamp.x - 2.0f, lamp.y - 2.0f, 4.0f, 4.0f);
+
+    const auto textColour = skin::colour::textDim.interpolatedWith (juce::Colours::white, lit)
+                                .withAlpha (down ? 0.75f : 1.0f);
+
+    auto textArea = bounds.withTrimmedLeft (bounds.getHeight() * 0.55f);
+    skin::drawTracked (g, caption.toUpperCase(), skin::labelFont (10.5f, true),
+                       textArea.translated (0.0f, 1.0f), juce::Justification::centred,
+                       juce::Colours::black.withAlpha (0.5f), 3.0f);
+    skin::drawTracked (g, caption.toUpperCase(), skin::labelFont (10.5f, true), textArea,
+                       juce::Justification::centred, textColour, 3.0f);
+}
+
+// ============================================================================
 //  TailMeter
 // ============================================================================
 

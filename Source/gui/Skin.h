@@ -48,6 +48,7 @@ namespace colour
     inline const juce::Colour spectrum   { 0xffa98cff };
     inline const juce::Colour drift      { 0xff6ff0c0 };
     inline const juce::Colour collapse   { 0xffff7a4f };
+    inline const juce::Colour echo       { 0xffff79c8 };
     inline const juce::Colour master     { 0xffffd9a0 };
 }
 

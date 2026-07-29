@@ -59,7 +59,6 @@ namespace
             v[i] *= norm;
     }
 
-    constexpr int   kControlInterval = 32;
     constexpr float kInputTrim       = 0.32f;
     // Calibrated so that at 100 % mix and a mid decay the wet output sits at roughly
     // the level of the source. Anything else turns the mix control into a volume
@@ -68,6 +67,18 @@ namespace
     constexpr float kMaxPreDelayMs   = 500.0f;
     constexpr float kMaxModMs        = 8.0f;
     constexpr float kMaxDriftMs      = 13.0f;
+
+    // How much of the delay's output is also sent into the network. Less than what goes
+    // straight to the output: the repeats should bloom into the space, not be swallowed
+    // by it. Tied to the delay's own mix, so one control still means one thing.
+    constexpr float kDelayToNetwork  = 0.75f;
+
+    // The early field goes to the output at close to full level, and into the network
+    // at half of it. Both matter: the first is what you hear as the room, the second is
+    // what gives the tail something shaped to grow out of, so the wash arrives from
+    // somewhere instead of simply fading up.
+    constexpr float kEarlyLevel      = 0.95f;
+    constexpr float kEarlyToNetwork  = 0.5f;
 
     // Loop gain at full regeneration. Comfortably over unity: it has to outrun the
     // interpolator and modulation losses that drag a nominally infinite tail downward
@@ -135,6 +146,10 @@ void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
     preDelayL.prepare ((int) (kMaxPreDelayMs * 0.001f * sr) + 64);
     preDelayR.prepare ((int) (kMaxPreDelayMs * 0.001f * sr) + 64);
 
+    delay.setParams (params.delay);
+    delay.prepare (sr);
+    early.prepare (sr);
+
     shimmerA.prepare (sr, 92.0f);
     shimmerB.prepare (sr, 78.0f);      // different windows, so the two voices do not
     subShifter.prepare (sr, 110.0f);   // flutter in lockstep
@@ -158,6 +173,8 @@ void NebulaEngine::prepare (double sampleRate, int /*maxBlockSize*/)
     smInput     .prepare (sr, 40.0f,  kInputTrim);
     smDiffusion .prepare (sr, slow,   params.diffusion);
     smFeedback  .prepare (sr, slow,   params.feedback);
+    smSpace     .prepare (sr, fast,   params.space);
+    smReverb    .prepare (sr, fast,   params.reverbLevel);
 
     energyCoeff = 1.0f - std::exp (-1.0f / (kEnergyTimeSec * (float) sr));
     regCoeff    = 1.0f - std::exp (-(float) kControlInterval / (kRegTimeSec * (float) sr));
@@ -198,8 +215,14 @@ void NebulaEngine::reset() noexcept
 
     for (auto* s : { &smPreDelay, &smSizeScale, &smDecay, &smMix, &smWidth, &smOutput,
                      &smShimmer, &smMass, &smDrive, &smModDepth, &smDriftDepth, &smInput,
-                     &smDiffusion, &smFeedback })
+                     &smDiffusion, &smFeedback, &smSpace, &smReverb })
         s->snap();
+
+    // After updateTargets, which is what hands the delay its parameters - it snaps its
+    // own smoothers to them.
+    delay.reset();
+    early.reset();
+    earlyActive = params.space > 0.0f;
 
     controlCounter = 0;
     wetLevel = brightness = levelFollower = brightFollower = 0.0f;
@@ -221,12 +244,16 @@ void NebulaEngine::updateTargets() noexcept
     smMass      .setTarget (params.mass);
     smDiffusion .setTarget (params.diffusion);
     smFeedback  .setTarget (params.feedback);
+    smSpace     .setTarget (params.space);
+    smReverb    .setTarget (params.reverbLevel);
     smInput     .setTarget (frozen ? 0.0f : kInputTrim);
     smDrive     .setTarget (1.0f + 11.0f * params.collapse);
     smModDepth  .setTarget (params.modDepth * kMaxModMs * 0.001f * (float) sr
                                 * (frozen ? 0.5f : 1.0f));
     smDriftDepth.setTarget (params.detuneCents * 0.01f * kMaxDriftMs * 0.001f * (float) sr
                                 * (frozen ? 0.5f : 1.0f));
+
+    delay.setParams (params.delay);
 }
 
 void NebulaEngine::updateControlRate() noexcept
@@ -331,6 +358,16 @@ void NebulaEngine::updateControlRate() noexcept
     shimmerA.setPitch (params.shimmerSemis,  params.detuneCents);
     shimmerB.setPitch (params.shimmerSemis, -params.detuneCents * 1.13f);
     subShifter.setPitch (-12.0f, params.detuneCents * 0.25f);
+
+    delay.updateControlRate();
+
+    // ---- early field --------------------------------------------------------
+    early.setSize (sizeScale);
+
+    // Eighteen interpolated reads a sample is not a price worth paying while Space is
+    // at zero. The line keeps being written either way, so turning it up does not start
+    // with a hole in it.
+    earlyActive = params.space > 0.0f || smSpace.getCurrent() > 1.0e-6f;
 }
 
 void NebulaEngine::process (float* left, float* right, int numSamples) noexcept
@@ -359,6 +396,36 @@ void NebulaEngine::process (float* left, float* right, int numSamples) noexcept
         auto inR = preDelayR.read (preSamples);
         preDelayL.advance();
         preDelayR.advance();
+
+        // ---- the delay ------------------------------------------------------
+        // Fed from the dry input, so its repeats are clean before the space gets hold
+        // of them. Its output goes two ways: through the diffusers into the network,
+        // where it blooms, and straight to the wet output further down, where it stays
+        // a repeat you can count. Added before the input trim, so Freeze - which shuts
+        // that trim - holds the space and leaves the delay echoing over the top of it.
+        float delayL = 0.0f, delayR = 0.0f;
+        delay.process (inL, inR, delayL, delayR);
+
+        inL += delayL * kDelayToNetwork;
+        inR += delayR * kDelayToNetwork;
+
+        // ---- early reflections ----------------------------------------------
+        // Fed from the input and the delay both, so a repeat arrives in the same room
+        // the source did. Its own output is not fed back into it - the line it reads
+        // was written a line above this.
+        const auto space = smSpace.next();
+        float earlyL = 0.0f, earlyR = 0.0f;
+
+        if (earlyActive)
+        {
+            early.process (inL, inR, earlyL, earlyR);
+            inL += earlyL * space * kEarlyToNetwork;
+            inR += earlyR * space * kEarlyToNetwork;
+        }
+        else
+        {
+            early.skip (inL, inR);
+        }
 
         // ---- input diffusion ------------------------------------------------
         for (int k = 0; k < 4; ++k)
@@ -437,6 +504,22 @@ void NebulaEngine::process (float* left, float* right, int numSamples) noexcept
         // ---- output stage -----------------------------------------------------
         wetL *= kOutputTrim;
         wetR *= kOutputTrim;
+
+        // The room joins the tail, and the Reverb control sets what the two of them
+        // together are worth. At 0 % the space disappears and only the delay is left,
+        // which is the setting for using this as a delay with a reverb attached rather
+        // than the other way round.
+        const auto reverbLevel = smReverb.next();
+        const auto earlyLevel  = space * kEarlyLevel;
+
+        wetL = (wetL + earlyL * earlyLevel) * reverbLevel;
+        wetR = (wetR + earlyR * earlyLevel) * reverbLevel;
+
+        // The repeats join the wet path here, in the same units the network's output
+        // has just been trimmed into - so everything below this line, width, DC and the
+        // wet limiter included, treats the two the same.
+        wetL += delayL;
+        wetR += delayR;
 
         const auto width = smWidth.next();
         const auto mid   = 0.5f * (wetL + wetR);

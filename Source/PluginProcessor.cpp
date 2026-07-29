@@ -75,6 +75,8 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.mix          = params.mix->load()       * 0.01f;
     p.preDelayMs   = params.preDelay->load();
     p.size         = params.size->load()      * 0.01f;
+    p.space        = params.space->load()     * 0.01f;
+    p.reverbLevel  = params.reverbLevel->load() * 0.01f;
     p.decay        = params.decay->load()     * 0.01f;
     p.feedback     = params.feedback->load()  * 0.01f;
     p.damping      = params.damping->load()   * 0.01f;
@@ -91,6 +93,19 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.width        = params.width->load()     * 0.01f;
     p.outputGain   = juce::Decibels::decibelsToGain (params.output->load());
     p.freeze       = params.freeze->load() > 0.5f;
+
+    p.delay.enabled    = params.delayOn->load() > 0.5f;
+    p.delay.timeMs     = params.delayTime->load();
+    p.delay.feedback   = params.delayFeed->load()    * 0.01f;
+    p.delay.spread     = params.delaySpread->load()  * 0.01f;
+    p.delay.shimmer    = params.delayShimmer->load() * 0.01f;
+    p.delay.pitchSemis = params.delayPitch->load();
+    p.delay.tone       = params.delayTone->load()    * 0.01f;
+    p.delay.wobble     = params.delayWobble->load()  * 0.01f;
+    p.delay.abyss      = params.delayAbyss->load()   * 0.01f;
+    p.delay.mix        = params.delayMix->load()     * 0.01f;
+    p.delay.morph      = params.delayMorph->load()   * 0.01f;
+    p.delay.bounce     = params.delayBounce->load()  * 0.01f;
 
     engine.setParams (p);
 }
@@ -168,11 +183,39 @@ void DyingStarProcessor::getStateInformation (juce::MemoryBlock& destData)
         copyXmlToBinary (*xml, destData);
 }
 
+namespace
+{
+    /** APVTS writes one <PARAM id=... value=.../> per parameter, and leaves anything it
+        does not find in the tree at whatever value it already had - which for a
+        parameter that did not exist when the session was saved is whatever the last
+        patch happened to leave behind. */
+    bool stateMentions (const juce::XmlElement& xml, const char* id)
+    {
+        for (auto* child : xml.getChildWithTagNameIterator ("PARAM"))
+            if (child->getStringAttribute ("id") == id)
+                return true;
+
+        return false;
+    }
+}
+
 void DyingStarProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (auto xml = getXmlFromBinary (data, sizeInBytes))
-        if (xml->hasTagName (apvts.state.getType()))
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+    auto xml = getXmlFromBinary (data, sizeInBytes);
+
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return;
+
+    // Space defaults to 40 %, because a new instance should sound like a room. A
+    // session saved before the early field existed has to sound like what it was saved
+    // as, though, so it is migrated to the setting that reproduces exactly that.
+    const auto knewAboutSpace = stateMentions (*xml, pid::space);
+
+    apvts.replaceState (juce::ValueTree::fromXml (*xml));
+
+    if (! knewAboutSpace)
+        if (auto* p = apvts.getParameter (pid::space))
+            p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
 }
 
 juce::AudioProcessorEditor* DyingStarProcessor::createEditor()

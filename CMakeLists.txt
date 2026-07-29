@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(DyingStar
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "The Sound of a Dying Star - cosmic shimmer reverb"
     LANGUAGES C CXX)
 
@@ -22,6 +22,13 @@ endif()
 
 option(DYINGSTAR_COPY_AFTER_BUILD "Install the built plug-in into the user VST3 folder" ON)
 option(DYINGSTAR_BUILD_TOOLS      "Build the developer tool (offline checks / renderer)" OFF)
+
+# Off by default, and deliberately. Link-time optimisation buys a few per cent of CPU in
+# the finished binary and costs minutes on every single link - the plug-in, the
+# standalone and the tool each re-optimise the whole of JUCE, so changing one line of DSP
+# used to be a five-minute wait. Release builds turn it on; nobody working on the code
+# should have to.
+option(DYINGSTAR_LTO "Link-time optimisation (slow links, for release builds)" OFF)
 
 set(DYINGSTAR_BUILD_ID "" CACHE STRING "Build identifier shown in the UI (e.g. a commit SHA)")
 
@@ -60,6 +67,7 @@ target_sources(DyingStar PRIVATE
     Source/Parameters.cpp
     Source/Presets.cpp
     Source/dsp/NebulaEngine.cpp
+    Source/dsp/VoidDelay.cpp
     Source/gui/Backdrop.cpp
     Source/gui/Controls.cpp
     Source/gui/CosmicKnob.cpp
@@ -90,8 +98,19 @@ target_link_libraries(DyingStar
         juce::juce_gui_extra
     PUBLIC
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+if (DYINGSTAR_LTO)
+    target_link_libraries(DyingStar PUBLIC juce::juce_recommended_lto_flags)
+
+    # GCC runs its link-time passes serially unless it is told how many it may run at
+    # once, which is most of where the minutes go - "using serial compilation of 79
+    # LTRANS jobs" in the build log is the machine saying so out loud.
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(DyingStar PUBLIC $<$<CONFIG:Release>:-flto=auto>)
+        target_link_options   (DyingStar PUBLIC $<$<CONFIG:Release>:-flto=auto>)
+    endif()
+endif()
 
 # -ffast-math is deliberately absent: it breaks denormal handling and NaN semantics,
 # both of which this engine depends on.

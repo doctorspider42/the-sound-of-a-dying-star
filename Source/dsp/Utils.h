@@ -29,6 +29,12 @@ namespace dying::dsp
 inline constexpr float kPi    = 3.14159265358979323846f;
 inline constexpr float kTwoPi = 6.28318530717958647692f;
 
+/** How often anything that is not worth recomputing per sample gets recomputed:
+    filter coefficients, pitch ratios, feedback gains. Shared, because the delay's
+    governor coefficient has to be derived from the same interval the engine calls it
+    on or its time constants are silently wrong. */
+inline constexpr int kControlInterval = 32;
+
 template <typename T>
 inline T clamp (T v, T lo, T hi) noexcept { return v < lo ? lo : (v > hi ? hi : v); }
 

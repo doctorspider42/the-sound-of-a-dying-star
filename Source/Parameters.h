@@ -47,6 +47,25 @@ namespace pid
     inline constexpr const char* output     = "output";
     inline constexpr const char* freeze     = "freeze";
     inline constexpr const char* bypass     = "bypass";
+
+    // The delay section. Added after everything else, so no parameter that existed
+    // before it moved index - hosts that remember automation by position keep working.
+    inline constexpr const char* delayOn      = "delayon";
+    inline constexpr const char* delayTime    = "delaytime";
+    inline constexpr const char* delayFeed    = "delayfb";
+    inline constexpr const char* delaySpread  = "delayspread";
+    inline constexpr const char* delayShimmer = "delayshimmer";
+    inline constexpr const char* delayPitch   = "delaypitch";
+    inline constexpr const char* delayTone    = "delaytone";
+    inline constexpr const char* delayWobble  = "delaywobble";
+    inline constexpr const char* delayAbyss   = "delayabyss";
+    inline constexpr const char* delayMix     = "delaymix";
+    inline constexpr const char* delayMorph   = "delaymorph";
+    inline constexpr const char* delayBounce  = "delaybounce";
+
+    // The early field, and the network's own level in the wet path.
+    inline constexpr const char* space        = "space";
+    inline constexpr const char* reverbLevel  = "reverblevel";
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -77,6 +96,22 @@ struct ParamPointers
     std::atomic<float>* output    = nullptr;
     std::atomic<float>* freeze    = nullptr;
     std::atomic<float>* bypass    = nullptr;
+
+    std::atomic<float>* delayOn      = nullptr;
+    std::atomic<float>* delayTime    = nullptr;
+    std::atomic<float>* delayFeed    = nullptr;
+    std::atomic<float>* delaySpread  = nullptr;
+    std::atomic<float>* delayShimmer = nullptr;
+    std::atomic<float>* delayPitch   = nullptr;
+    std::atomic<float>* delayTone    = nullptr;
+    std::atomic<float>* delayWobble  = nullptr;
+    std::atomic<float>* delayAbyss   = nullptr;
+    std::atomic<float>* delayMix     = nullptr;
+    std::atomic<float>* delayMorph   = nullptr;
+    std::atomic<float>* delayBounce  = nullptr;
+
+    std::atomic<float>* space        = nullptr;
+    std::atomic<float>* reverbLevel  = nullptr;
 };
 
 } // namespace dying

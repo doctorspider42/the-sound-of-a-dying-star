@@ -25,8 +25,10 @@
 #pragma once
 
 #include "DelayLine.h"
+#include "EarlyField.h"
 #include "PitchShifter.h"
 #include "Utils.h"
+#include "VoidDelay.h"
 
 #include <array>
 
@@ -42,6 +44,8 @@ struct ReverbParams
     float mix          = 0.45f;   // 0..1
     float preDelayMs   = 40.0f;   // 0..500
     float size         = 0.6f;    // 0..1
+    float space        = 0.0f;    // 0..1  early reflections: the depth of the room
+    float reverbLevel  = 1.0f;    // 0..1  the network's own presence in the wet path
     float decay        = 0.65f;   // 0..1  (>= kInfiniteDecay means never)
     float feedback     = 0.0f;    // 0..1  regeneration on top of decay
     float damping      = 0.4f;    // 0..1
@@ -58,6 +62,10 @@ struct ReverbParams
     float width        = 1.2f;    // 0..2
     float outputGain   = 1.0f;    // linear
     bool  freeze       = false;
+
+    /** The delay in front of the network. It lives inside the wet path, so the dry
+        signal stays untouched and Mix still means what it says. */
+    DelayParams delay;
 };
 
 /** Above this the decay control means literally infinite rather than "very long". */
@@ -101,6 +109,9 @@ private:
 
     Allpass diffuseL[4], diffuseR[4];
     DelayLine preDelayL, preDelayR;
+    VoidDelay delay;
+    EarlyField early;
+    bool earlyActive = false;
 
     PitchShifter shimmerA, shimmerB, subShifter;
     OnePoleHP    shimmerHP;
@@ -108,7 +119,7 @@ private:
 
     DCBlocker dcL, dcR;
 
-    Smoothed smPreDelay, smSizeScale, smDecay, smMix, smWidth, smOutput;
+    Smoothed smPreDelay, smSizeScale, smDecay, smMix, smWidth, smOutput, smSpace, smReverb;
     Smoothed smShimmer, smMass, smDrive, smModDepth, smDriftDepth, smInput, smDiffusion;
     Smoothed smFeedback;
 

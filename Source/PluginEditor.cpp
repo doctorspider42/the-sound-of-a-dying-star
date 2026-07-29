@@ -29,13 +29,17 @@ namespace
     constexpr float kHeaderY = 6.0f,   kHeaderH = 42.0f;
     constexpr float kStarY   = 52.0f,  kStarH   = 246.0f;
     constexpr float kPanelY  = 306.0f, kPanelH  = 268.0f;
-    constexpr float kMasterY = 586.0f, kMasterH = 146.0f;
-    constexpr float kFooterY = 736.0f;
+    constexpr float kEchoY   = 586.0f, kEchoH   = 172.0f;
+    constexpr float kMasterY = 770.0f, kMasterH = 146.0f;
+    constexpr float kFooterY = 920.0f;
 
-    constexpr float kGravityX  =  14.0f, kGravityW  = 234.0f;
-    constexpr float kSpectrumX = 266.0f, kSpectrumW = 234.0f;
-    constexpr float kDriftX    = 518.0f, kDriftW    = 334.0f;
-    constexpr float kCollapseX = 870.0f, kCollapseW = 136.0f;
+    // Gravity is three columns wide now that the room lives in it; the other three give
+    // up what it needed. Written out rather than computed because the backdrop draws
+    // the frames from the same numbers and a rounding difference would show.
+    constexpr float kGravityX  =  14.0f, kGravityW  = 300.0f;
+    constexpr float kSpectrumX = 332.0f, kSpectrumW = 224.0f;
+    constexpr float kDriftX    = 574.0f, kDriftW    = 292.0f;
+    constexpr float kCollapseX = 884.0f, kCollapseW = 122.0f;
 
     constexpr float kTitleStripH = 32.0f;
 
@@ -147,7 +151,8 @@ std::unique_ptr<CosmicKnob> DyingStarEditor::makeKnob (const juce::String& param
 DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     : juce::AudioProcessorEditor (&p),
       processor (p),
-      freeze (p.getState(), pid::freeze)
+      freeze (p.getState(), pid::freeze),
+      delayEngage (p.getState(), pid::delayOn, "Engage", skin::colour::echo)
 {
     addAndMakeVisible (content);
     content.addAndMakeVisible (backdrop);
@@ -155,14 +160,17 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     content.addAndMakeVisible (star);
     content.addAndMakeVisible (tailMeter);
     content.addAndMakeVisible (freeze);
+    content.addAndMakeVisible (delayEngage);
     content.addAndMakeVisible (presets);
 
     using namespace skin::colour;
 
     kPreDelay  = makeKnob (pid::preDelay,  "Pre-Delay", gravity);
     kSize      = makeKnob (pid::size,      "Size",      gravity);
+    kSpace     = makeKnob (pid::space,     "Space",     gravity);
     kDecay     = makeKnob (pid::decay,     "Decay",     gravity);
     kDiffusion = makeKnob (pid::diffusion, "Diffusion", gravity);
+    kReverb    = makeKnob (pid::reverbLevel, "Reverb",  gravity);
 
     kDamping   = makeKnob (pid::damping,   "Damping",   spectrum);
     kLowCut    = makeKnob (pid::lowCut,    "Low Cut",   spectrum);
@@ -177,6 +185,18 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
 
     kCollapse  = makeKnob (pid::collapse,  "Collapse",  skin::colour::collapse);
     kMass      = makeKnob (pid::mass,      "Mass",      skin::colour::collapse);
+
+    kDelayTime    = makeKnob (pid::delayTime,    "Time",     echo);
+    kDelayFeed    = makeKnob (pid::delayFeed,    "Feedback", echo);
+    kDelaySpread  = makeKnob (pid::delaySpread,  "Spread",   echo);
+    kDelayShimmer = makeKnob (pid::delayShimmer, "Shimmer",  echo);
+    kDelayPitch   = makeKnob (pid::delayPitch,   "Pitch",    echo, true);
+    kDelayTone    = makeKnob (pid::delayTone,    "Tone",     echo);
+    kDelayWobble  = makeKnob (pid::delayWobble,  "Wobble",   echo);
+    kDelayMorph   = makeKnob (pid::delayMorph,   "Morph",    echo);
+    kDelayBounce  = makeKnob (pid::delayBounce,  "Bounce",   echo, true);
+    kDelayAbyss   = makeKnob (pid::delayAbyss,   "Abyss",    echo);
+    kDelayMix     = makeKnob (pid::delayMix,     "Mix",      echo);
 
     // Cyan rather than the panel's own accent: it belongs to the same family as
     // Decay, and on this panel colour is what says what a control does.
@@ -225,7 +245,7 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
 
     // ---- window -------------------------------------------------------------
     setResizable (true, true);
-    setResizeLimits (816, 605, 1632, 1210);
+    setResizeLimits (816, 752, 1632, 1504);
 
     if (auto* sizeConstrainer = getConstrainer())
         sizeConstrainer->setFixedAspectRatio ((double) kLogicalWidth / (double) kLogicalHeight);
@@ -282,6 +302,8 @@ void DyingStarEditor::layOutContent()
     const juce::Rectangle<float> spectrumPanel { kSpectrumX, kPanelY, kSpectrumW, kPanelH };
     const juce::Rectangle<float> driftPanel    { kDriftX,    kPanelY, kDriftW,    kPanelH };
     const juce::Rectangle<float> collapsePanel { kCollapseX, kPanelY, kCollapseW, kPanelH };
+    const juce::Rectangle<float> echoPanel     { kMargin,    kEchoY,
+                                                 contentWidth - 2.0f * kMargin, kEchoH };
     const juce::Rectangle<float> masterPanel   { kMargin,    kMasterY,
                                                  contentWidth - 2.0f * kMargin, kMasterH };
     const juce::Rectangle<float> starPanel     { kMargin,    kStarY,
@@ -293,6 +315,7 @@ void DyingStarEditor::layOutContent()
         { spectrumPanel, "SPECTRUM",   skin::colour::spectrum },
         { driftPanel,    "DRIFT",      skin::colour::drift    },
         { collapsePanel, "COLLAPSE",   skin::colour::collapse },
+        { echoPanel,     "ECHO",       skin::colour::echo     },
         { masterPanel,   "EMISSION",   skin::colour::master   },
     });
 
@@ -309,32 +332,52 @@ void DyingStarEditor::layOutContent()
         auto body = panelBody (gravityPanel);
         const auto rowH = body.getHeight() * 0.5f;
         auto top = body.removeFromTop (rowH);
-        layOutRow (top,  { kPreDelay.get(), kSize.get() },      101.0f, 62.0f);
-        layOutRow (body, { kDecay.get(), kDiffusion.get() },    101.0f, 62.0f);
+        layOutRow (top,  { kPreDelay.get(), kSize.get(), kSpace.get() },   90.0f, 58.0f);
+        layOutRow (body, { kDecay.get(), kDiffusion.get(), kReverb.get() }, 90.0f, 58.0f);
     }
 
     {
         auto body = panelBody (spectrumPanel);
         const auto rowH = body.getHeight() * 0.5f;
         auto top = body.removeFromTop (rowH);
-        layOutRow (top,  { kLowCut.get(), kHighCut.get() },     101.0f, 62.0f);
-        layOutRow (body, { kDamping.get(), kWidth.get() },      101.0f, 62.0f);
+        layOutRow (top,  { kLowCut.get(), kHighCut.get() },      98.0f, 62.0f);
+        layOutRow (body, { kDamping.get(), kWidth.get() },       98.0f, 62.0f);
     }
 
     {
         auto body = panelBody (driftPanel);
         const auto rowH = body.getHeight() * 0.5f;
         auto top = body.removeFromTop (rowH);
-        layOutRow (top,  { kShimmer.get(), kPitch.get(), kDetune.get() }, 101.0f, 62.0f);
-        layOutRow (body, { kModRate.get(), kModDepth.get() },             101.0f, 62.0f);
+        layOutRow (top,  { kShimmer.get(), kPitch.get(), kDetune.get() },  88.0f, 58.0f);
+        layOutRow (body, { kModRate.get(), kModDepth.get() },              88.0f, 58.0f);
     }
 
     {
         auto body = panelBody (collapsePanel);
         const auto rowH = body.getHeight() * 0.5f;
         auto top = body.removeFromTop (rowH);
-        layOutRow (top,  { kCollapse.get() }, 106.0f, 62.0f);
-        layOutRow (body, { kMass.get() },     106.0f, 62.0f);
+        layOutRow (top,  { kCollapse.get() },  94.0f, 62.0f);
+        layOutRow (body, { kMass.get() },      94.0f, 62.0f);
+    }
+
+    // ---- echo row -----------------------------------------------------------
+    // One row across the whole panel, and the switch at the head of it: the section is
+    // a signal path in its own right, and reading it left to right is reading the order
+    // things happen in - time, how much comes back, where it goes, what it turns into.
+    {
+        auto body = echoPanel.reduced (20.0f, 0.0f);
+        body.removeFromTop (34.0f);
+        body.removeFromBottom (10.0f);
+
+        auto engageArea = body.removeFromLeft (124.0f);
+        delayEngage.setBounds (engageArea.withSizeKeepingCentre (118.0f, 42.0f).toNearestInt());
+        body.removeFromLeft (6.0f);
+
+        layOutRow (body, { kDelayTime.get(), kDelayBounce.get(), kDelayFeed.get(),
+                           kDelaySpread.get(), kDelayShimmer.get(), kDelayPitch.get(),
+                           kDelayMorph.get(), kDelayTone.get(), kDelayWobble.get(),
+                           kDelayAbyss.get(), kDelayMix.get() },
+                   74.0f, 54.0f);
     }
 
     // ---- master row ---------------------------------------------------------
