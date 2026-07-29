@@ -1,5 +1,7 @@
 # The Sound of a Dying Star
 
+<img src="assets/icon.png" alt="" width="128" align="right">
+
 A cosmic shimmer reverb for ambient work, with a delay in front of it that is built the
 same way. Feedback delay network, pitch-shifted feedback paths and a soft clipper inside
 every loop — so the same instrument covers a barely-there halo over a pad and the
@@ -229,9 +231,16 @@ built:
 It only reconfigures when something it depends on has changed, so an ordinary
 edit-and-rebuild is a couple of seconds plus the time the checks take. `--release` adds
 link-time optimisation and stamps the commit into the panel, for a binary you are going
-to hand to someone; `--shot` re-renders `docs/panel.png`; `--clean` starts over;
-`--no-check`, `--no-install` and `--debug` do what they say. `./build.sh --help` lists
-them.
+to hand to someone; `--shot` re-renders `docs/panel.png`; `--icon` redraws the two PNGs in
+`assets/`; `--clean` starts over; `--no-check`, `--no-install` and `--debug` do what they
+say. `./build.sh --help` lists them.
+
+The application icon is drawn, not authored: `Source/gui/Icon.cpp` paints a collapsing
+star inside its accretion disk out of the same palette as the panel, and every dimension
+in it is a fraction of the square it is given, so each size a platform asks for is
+rendered at that size instead of being scaled down from one master. The two PNGs are
+committed because CMake hands them to JUCE at configure time — before anything that could
+draw them has been built — so `--icon` is only needed when the drawing changes.
 
 By hand, or on Windows:
 
@@ -268,13 +277,14 @@ cmake --build build --parallel      # ~10 s after a one-file change
 ## Verifying it without a DAW
 
 `DYINGSTAR_BUILD_TOOLS=ON` builds a console tool that needs neither an audio device nor
-a display, and both of its modes run in CI:
+a display, and all of its modes run in CI:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DDYINGSTAR_BUILD_TOOLS=ON -DDYINGSTAR_COPY_AFTER_BUILD=OFF
 cmake --build build --parallel
 ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool check
 ./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool shot panel.png
+./build/DyingStarDevTool_artefacts/Release/DyingStarDevTool icon icon.png 1024
 ```
 
 `check` asserts, among other things, that the dry path is untouched at 0 % mix, that the
@@ -287,6 +297,8 @@ delay engaged, so a regression is visible rather than merely suspected.
 
 `shot` renders the editor to a PNG with no window and no display server, which is how the
 screenshots in this README are made and how a panel that fails to paint fails the build.
+`icon` draws the application mark at any size you ask for, which is where the PNGs in
+`assets/` come from.
 
 ## Licence
 

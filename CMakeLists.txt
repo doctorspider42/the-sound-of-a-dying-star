@@ -59,6 +59,15 @@ juce_add_plugin(DyingStar
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+
+    # Both sizes are given, so each icon resolution the platforms ask for is taken from
+    # the render closest to it rather than scaled down from one master. Both are drawn by
+    # Source/gui/Icon.cpp and regenerated with `./build.sh --icon`; they are committed
+    # because CMake needs them at configure time, which is before anything that could
+    # draw them has been built.
+    ICON_BIG                    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.png"
+    ICON_SMALL                  "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon-small.png"
+
     COPY_PLUGIN_AFTER_BUILD     ${DYINGSTAR_COPY_AFTER_BUILD})
 
 target_sources(DyingStar PRIVATE
@@ -71,6 +80,7 @@ target_sources(DyingStar PRIVATE
     Source/gui/Backdrop.cpp
     Source/gui/Controls.cpp
     Source/gui/CosmicKnob.cpp
+    Source/gui/Icon.cpp
     Source/gui/Skin.cpp
     Source/gui/StarView.cpp)
 

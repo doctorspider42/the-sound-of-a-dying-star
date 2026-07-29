@@ -36,6 +36,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** Where the standalone's window gets its icon from. A plug-in window belongs to the
+        host and is left alone. */
+    void parentHierarchyChanged() override;
+
     /** The panel is designed once at this size and then scaled as a whole, so layout
         code never has to think about the zoom factor. */
     static constexpr int kLogicalWidth  = 1020;

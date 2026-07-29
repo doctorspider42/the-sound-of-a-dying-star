@@ -10,6 +10,7 @@
 #       ./build.sh --run           ... and start the standalone when they pass
 #       ./build.sh --release       with link-time optimisation, for a binary to hand out
 #       ./build.sh --shot          also render the panel to docs/panel.png
+#       ./build.sh --icon          also redraw the application icon into assets/
 #       ./build.sh --clean --run   from scratch
 #
 #   LTO is off unless asked for: it costs minutes on every link and buys a few per cent
@@ -25,6 +26,7 @@ lto=OFF
 install_vst3=ON
 run_it=false
 take_shot=false
+draw_icon=false
 run_checks=true
 do_clean=false
 
@@ -37,6 +39,7 @@ The Sound of a Dying Star - build, check, and optionally start the thing.
     ./build.sh --run           ... and start the standalone when they pass
     ./build.sh --release       with link-time optimisation, for a binary to hand out
     ./build.sh --shot          also render the panel to docs/panel.png
+    ./build.sh --icon          also redraw the application icon into assets/
     ./build.sh --clean --run   from scratch
 
 Options:
@@ -44,6 +47,7 @@ Options:
   --release      build with LTO (slow links, faster binary)
   --debug        build unoptimised, into build-debug/
   --shot         render the panel to docs/panel.png
+  --icon         redraw assets/icon.png and assets/icon-small.png
   --no-check     skip the offline DSP checks
   --no-install   do not copy the VST3 into ~/.vst3
   --clean        delete the build directory first
@@ -57,6 +61,7 @@ while [[ $# -gt 0 ]]; do
         --release)    lto=ON ;;
         --debug)      build_type=Debug; build_dir="$here/build-debug" ;;
         --shot)       take_shot=true ;;
+        --icon)       draw_icon=true ;;
         --no-check)   run_checks=false ;;
         --no-install) install_vst3=OFF ;;
         --clean)      do_clean=true ;;
@@ -141,6 +146,14 @@ fi
 if [[ "$take_shot" == true ]]; then
     step "rendering the panel"
     ( cd "$here/docs" && "$devtool" shot panel.png )
+fi
+
+# The icons are committed because CMake needs them before anything that could draw them
+# exists, so this only has to be run when Source/gui/Icon.cpp changes. Each size is drawn
+# at its own resolution rather than scaled down from the big one.
+if [[ "$draw_icon" == true ]]; then
+    step "drawing the icon"
+    ( cd "$here/assets" && "$devtool" icon icon.png 1024 && "$devtool" icon icon-small.png 128 )
 fi
 
 step "built"

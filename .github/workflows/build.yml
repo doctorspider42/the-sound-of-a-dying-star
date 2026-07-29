@@ -74,6 +74,14 @@ jobs:
           "$DEVTOOL" shot panel-${{ matrix.label }}.png
           test -s panel-${{ matrix.label }}.png
 
+      # The committed PNGs in assets/ are only what CMake needs at configure time; this
+      # is what says the code that drew them still runs, on both platforms.
+      - name: Icon smoke test
+        shell: bash
+        run: |
+          "$DEVTOOL" icon icon-${{ matrix.label }}.png 512
+          test -s icon-${{ matrix.label }}.png
+
       # Without xvfb-run, pluginval silently skips every editor test and hands back a
       # green tick that proved much less than it looks like it did.
       - name: pluginval

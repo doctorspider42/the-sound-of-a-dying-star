@@ -16,6 +16,7 @@
 
 #include "PluginEditor.h"
 #include "Presets.h"
+#include "gui/Icon.h"
 
 namespace dying
 {
@@ -279,6 +280,17 @@ void DyingStarEditor::resized()
 
     layOutContent();
     storeEditorSize();
+}
+
+void DyingStarEditor::parentHierarchyChanged()
+{
+    // The standalone owns its window, so it is the one place this is ours to set - a
+    // host's plug-in window is not, and setting an icon on it would replace the DAW's.
+    if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone)
+        return;
+
+    if (auto* peer = getPeer())
+        peer->setIcon (icon::render (128));
 }
 
 void DyingStarEditor::storeEditorSize()

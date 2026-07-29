@@ -18,15 +18,17 @@
 
         devtool check            - DSP assertions, measurements, CPU cost
         devtool shot <file.png>  - render the editor to a PNG
+        devtool icon <file.png>  - render the application mark to a PNG
 
-    Neither mode needs a host, an audio device or a display, so both run in CI and both
-    run in about two seconds on a laptop. Every claim made about this reverb in the
-    README is checked by something in here.                                          */
+    None of the modes needs a host, an audio device or a display, so all of them run in
+    CI and all of them run in about two seconds on a laptop. Every claim made about this
+    reverb in the README is checked by something in here.                             */
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "../Source/PluginProcessor.h"
 #include "../Source/PluginEditor.h"
+#include "../Source/gui/Icon.h"
 
 #include <iostream>
 
@@ -1611,6 +1613,26 @@ int runCheck()
     return failures == 0 ? 0 : 1;
 }
 
+int writePng (const juce::Image& image, const juce::File& destination)
+{
+    destination.deleteFile();
+
+    if (auto stream = destination.createOutputStream())
+    {
+        juce::PNGImageFormat png;
+
+        if (png.writeImageToStream (image, *stream))
+        {
+            std::cout << "wrote " << destination.getFullPathName()
+                      << " (" << image.getWidth() << "x" << image.getHeight() << ")" << std::endl;
+            return 0;
+        }
+    }
+
+    std::cerr << "could not write " << destination.getFullPathName() << std::endl;
+    return 1;
+}
+
 /** Renders the editor with no window and no display server, so a panel that fails to
     construct or paint fails the build instead of shipping. */
 int renderShot (const juce::File& destination, int presetIndex)
@@ -1650,22 +1672,23 @@ int renderShot (const juce::File& destination, int presetIndex)
         return 1;
     }
 
-    destination.deleteFile();
+    return writePng (image, destination);
+}
 
-    if (auto stream = destination.createOutputStream())
+/** Renders the application mark. The icon is drawn at the size it is asked for rather
+    than scaled down from one master, so this is also the check that it still holds
+    together at 32 pixels. */
+int renderIcon (const juce::File& destination, int size)
+{
+    const auto image = dying::icon::render (size);
+
+    if (image.isNull())
     {
-        juce::PNGImageFormat png;
-
-        if (png.writeImageToStream (image, *stream))
-        {
-            std::cout << "wrote " << destination.getFullPathName()
-                      << " (" << image.getWidth() << "x" << image.getHeight() << ")" << std::endl;
-            return 0;
-        }
+        std::cerr << "icon render failed" << std::endl;
+        return 1;
     }
 
-    std::cerr << "could not write " << destination.getFullPathName() << std::endl;
-    return 1;
+    return writePng (image, destination);
 }
 
 } // namespace
@@ -1675,15 +1698,20 @@ int main (int argc, char** argv)
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     const juce::String command = argc > 1 ? juce::String (argv[1]) : "check";
+    const auto cwd = juce::File::getCurrentWorkingDirectory();
 
     if (command == "check")
         return runCheck();
 
     if (command == "shot")
-        return renderShot (juce::File::getCurrentWorkingDirectory()
-                               .getChildFile (argc > 2 ? juce::String (argv[2]) : "panel.png"),
+        return renderShot (cwd.getChildFile (argc > 2 ? juce::String (argv[2]) : "panel.png"),
                            argc > 3 ? juce::String (argv[3]).getIntValue() : -1);
 
-    std::cerr << "usage: devtool [check | shot <file.png> [presetIndex]]" << std::endl;
+    if (command == "icon")
+        return renderIcon (cwd.getChildFile (argc > 2 ? juce::String (argv[2]) : "icon.png"),
+                           argc > 3 ? juce::String (argv[3]).getIntValue() : 1024);
+
+    std::cerr << "usage: devtool [check | shot <file.png> [presetIndex] "
+              << "| icon <file.png> [size]]" << std::endl;
     return 2;
 }
