@@ -70,6 +70,59 @@ namespace pid
     // The early field, and the network's own level in the wet path.
     inline constexpr const char* space        = "space";
     inline constexpr const char* reverbLevel  = "reverblevel";
+
+    // The delay's spacing taken from the host's tempo instead of its own knob, and
+    // which note value it is taken as.
+    inline constexpr const char* delaySync    = "delaysync";
+    inline constexpr const char* delayDiv     = "delaydiv";
+
+    // Lets the shimmer interval off the semitone grid.
+    inline constexpr const char* shimFree     = "shimfree";
+}
+
+/** The note values the delay can be locked to.
+
+    Ordered by how long they are rather than by name, because the control is a knob: one
+    end has to be the shortest repeat and the other the longest, with everything in
+    between passing through in order. */
+namespace tempo
+{
+    struct Division
+    {
+        const char* label;
+        float beats;      // in quarter notes, which is what a BPM counts
+    };
+
+    inline constexpr Division kDivisions[] =
+    {
+        { "1/32T", 1.0f / 12.0f },
+        { "1/32",  0.125f       },
+        { "1/16T", 1.0f / 6.0f  },
+        { "1/32D", 0.1875f      },
+        { "1/16",  0.25f        },
+        { "1/8T",  1.0f / 3.0f  },
+        { "1/16D", 0.375f       },
+        { "1/8",   0.5f         },
+        { "1/4T",  2.0f / 3.0f  },
+        { "1/8D",  0.75f        },
+        { "1/4",   1.0f         },
+        { "1/2T",  4.0f / 3.0f  },
+        { "1/4D",  1.5f         },
+        { "1/2",   2.0f         },
+        { "1/1T",  8.0f / 3.0f  },
+        { "1/2D",  3.0f         },
+        { "1/1",   4.0f         },
+        { "1/1D",  6.0f         },
+    };
+
+    inline constexpr int kNumDivisions = (int) (sizeof (kDivisions) / sizeof (kDivisions[0]));
+
+    /** A quarter note: the one everybody reaches for first. */
+    inline constexpr int kDefaultDivision = 10;
+
+    /** What the host reports when it has no tempo to report - and what the standalone
+        runs at, since it has no transport of its own. */
+    inline constexpr double kFallbackBpm = 120.0;
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -118,6 +171,10 @@ struct ParamPointers
 
     std::atomic<float>* space        = nullptr;
     std::atomic<float>* reverbLevel  = nullptr;
+
+    std::atomic<float>* delaySync    = nullptr;
+    std::atomic<float>* delayDiv     = nullptr;
+    std::atomic<float>* shimFree     = nullptr;
 };
 
 } // namespace dying

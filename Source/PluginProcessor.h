@@ -67,12 +67,19 @@ public:
 private:
     void pushParametersToEngine() noexcept;
 
+    /** Asks the host what tempo it is running at, if it is a host and if it knows. */
+    void updateHostTempo() noexcept;
+
     juce::AudioProcessorValueTreeState apvts;
     ParamPointers params;
     juce::AudioProcessorParameter* bypassParam = nullptr;
 
     dsp::NebulaEngine engine;
     juce::AudioBuffer<float> monoScratch;
+
+    // What the host said last time it was asked. Only ever touched from the audio
+    // thread, and from prepareToPlay, which cannot run at the same time as it.
+    double hostBpm = tempo::kFallbackBpm;
 
     std::atomic<float> wetLevelOut { 0.0f };
     std::atomic<float> brightnessOut { 0.0f };

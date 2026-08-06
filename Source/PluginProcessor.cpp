@@ -41,16 +41,28 @@ bool DyingStarProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
     return layouts.getMainInputChannelSet() == out;
 }
 
+void DyingStarProcessor::updateHostTempo() noexcept
+{
+    if (auto* transport = getPlayHead())
+        if (const auto position = transport->getPosition())
+            if (const auto bpm = position->getBpm())
+                hostBpm = *bpm;
+}
+
 void DyingStarProcessor::reset()
 {
     // Push first: the engine snaps its smoothers on reset, and it can only snap to the
-    // right values if it has been told what they are.
+    // right values if it has been told what they are - which, with Sync on, includes
+    // the tempo. Ask before pushing and a synced delay starts at the right spacing
+    // instead of gliding to it from whatever the last project ran at.
+    updateHostTempo();
     pushParametersToEngine();
     engine.reset();
 }
 
 void DyingStarProcessor::prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock)
 {
+    updateHostTempo();
     pushParametersToEngine();
     engine.prepare (sampleRate, maximumExpectedSamplesPerBlock);
     monoScratch.setSize (2, juce::jmax (1, maximumExpectedSamplesPerBlock), false, false, true);
@@ -66,6 +78,27 @@ double DyingStarProcessor::getTailLengthSeconds() const
     // The decay curve tops out at 60 s, and freeze holds indefinitely - report the
     // long end so hosts do not truncate an offline render mid-tail.
     return 60.0;
+}
+
+namespace
+{
+    /** The spacing a note value asks for at a given tempo, in milliseconds.
+
+        Folded into the delay's range rather than clamped to it: at 60 BPM a whole note
+        is four seconds and the lines hold two, and half of a whole note is still on the
+        grid, where two seconds of a four-second note is a delay that is merely late. */
+    float syncedDelayMs (double bpm, int division) noexcept
+    {
+        const auto index = juce::jlimit (0, tempo::kNumDivisions - 1, division);
+        const auto safeBpm = juce::jlimit (20.0, 999.0, bpm);
+
+        auto ms = (float) (60000.0 / safeBpm) * tempo::kDivisions[(size_t) index].beats;
+
+        while (ms > dsp::kMaxDelayMs)
+            ms *= 0.5f;
+
+        return juce::jlimit (dsp::kMinDelayMs, dsp::kMaxDelayMs, ms);
+    }
 }
 
 void DyingStarProcessor::pushParametersToEngine() noexcept
@@ -84,7 +117,13 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.highCutHz    = params.highCut->load();
     p.diffusion    = params.diffusion->load() * 0.01f;
     p.shimmer      = params.shimmer->load()   * 0.01f;
-    p.shimmerSemis = params.shimPitch->load();
+
+    // The semitone grid lives here rather than in the knob, so what the engine is asked
+    // for is decided by the state alone - the same in a host, headless, or with the
+    // panel never opened. The knob snaps to match when it is open.
+    p.shimmerSemis = params.shimFree->load() > 0.5f ? params.shimPitch->load()
+                                                    : std::round (params.shimPitch->load());
+
     p.detuneCents  = params.detune->load();
     p.modRateHz    = params.modRate->load();
     p.modDepth     = params.modDepth->load()  * 0.01f;
@@ -96,7 +135,9 @@ void DyingStarProcessor::pushParametersToEngine() noexcept
     p.mono         = params.mono->load() > 0.5f;
 
     p.delay.enabled    = params.delayOn->load() > 0.5f;
-    p.delay.timeMs     = params.delayTime->load();
+    p.delay.timeMs     = params.delaySync->load() > 0.5f
+                           ? syncedDelayMs (hostBpm, juce::roundToInt (params.delayDiv->load()))
+                           : params.delayTime->load();
     p.delay.feedback   = params.delayFeed->load()    * 0.01f;
     p.delay.spread     = params.delaySpread->load()  * 0.01f;
     p.delay.shimmer    = params.delayShimmer->load() * 0.01f;
@@ -123,6 +164,11 @@ void DyingStarProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     if (numSamples <= 0)
         return;
+
+    // Before the bypass check, so coming out of bypass is not a block of the delay
+    // running at whatever the tempo was when it went in. Hosts that report no tempo -
+    // and the standalone, which has no transport at all - leave the last one standing.
+    updateHostTempo();
 
     if (params.bypass->load() > 0.5f)
     {
@@ -221,11 +267,24 @@ void DyingStarProcessor::setStateInformation (const void* data, int sizeInBytes)
     // as, though, so it is migrated to the setting that reproduces exactly that.
     const auto knewAboutSpace = stateMentions (*xml, pid::space);
 
+    // The two switches that change what another control means are the same problem in a
+    // smaller way: a state that never heard of them lands on top of whatever the last
+    // patch left them at, and a delay that comes back locked to a tempo - or a shimmer
+    // read off the semitone grid it was set on - is not the session that was saved.
+    const auto knewAboutSync = stateMentions (*xml, pid::delaySync);
+    const auto knewAboutFreePitch = stateMentions (*xml, pid::shimFree);
+
     apvts.replaceState (juce::ValueTree::fromXml (*xml));
 
-    if (! knewAboutSpace)
-        if (auto* p = apvts.getParameter (pid::space))
-            p->setValueNotifyingHost (p->convertTo0to1 (0.0f));
+    auto migrate = [this] (const char* id, float value)
+    {
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+    };
+
+    if (! knewAboutSpace)        migrate (pid::space, 0.0f);
+    if (! knewAboutSync)         migrate (pid::delaySync, 0.0f);
+    if (! knewAboutFreePitch)    migrate (pid::shimFree, 0.0f);
 }
 
 juce::AudioProcessorEditor* DyingStarProcessor::createEditor()

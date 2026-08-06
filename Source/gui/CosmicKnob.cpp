@@ -134,7 +134,10 @@ CosmicKnob::CosmicKnob (juce::AudioProcessorValueTreeState& state,
     lookAndFeel = std::make_unique<LookAndFeel> (accent, bipolar);
 
     if (auto* p = state.getParameter (parameterID))
+    {
         suffix = p->getLabel();
+        paramRange = p->getNormalisableRange();
+    }
 
     slider.setSliderStyle (juce::Slider::RotaryVerticalDrag);
     slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
@@ -159,6 +162,21 @@ CosmicKnob::CosmicKnob (juce::AudioProcessorValueTreeState& state,
 CosmicKnob::~CosmicKnob()
 {
     slider.setLookAndFeel (nullptr);
+}
+
+void CosmicKnob::setStepped (bool wholeUnits)
+{
+    // A step is the one thing a plain range can carry that the attachment's skew-aware
+    // one does not need to; anything with a law of its own would lose it here.
+    jassert (juce::approximatelyEqual (paramRange.skew, 1.0f));
+
+    slider.setRange ((double) paramRange.start, (double) paramRange.end,
+                     wholeUnits ? 1.0 : (double) paramRange.interval);
+
+    // The slider re-snaps its own value without telling the parameter, which is what
+    // should happen: the engine already reads the value the same way, so the readout
+    // follows the sound rather than the panel writing over a stored setting.
+    repaint();
 }
 
 void CosmicKnob::resized()

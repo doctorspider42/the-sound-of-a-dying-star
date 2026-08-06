@@ -73,7 +73,8 @@ loop of the same sound.
 
 | Control | What it does |
 |---|---|
-| **Time** | 2 ms to 2 s. Changes glide, so sweeping it warps like tape. |
+| **Sync** | Takes the spacing from the host's tempo instead of the Time knob. |
+| **Time** | 2 ms to 2 s, or a note value while Sync is on. Changes glide, so sweeping it warps like tape. |
 | **Bounce** | Right: each repeat lands sooner than the last. Left: they spread apart. |
 | **Feedback** | Past unity at the top, where the repeats stop ending. |
 | **Spread** | An orthogonal rotation between the channels: at 0 % a stereo dual delay, at 100 % the repeats bounce left, right, left. |
@@ -92,6 +93,19 @@ times a second, so a per-pass darkening, drag or governor trim that is gentle on
 half-second repeat would be thirty dB a second on a short one. Scale it and the same
 feedback setting holds both. Measured: after ten seconds of ringing, a 25 ms setting sits
 at −26.8 dBFS and a 600 ms setting at −26.4.
+
+**Sync** puts the same knob on the grid. The Time control becomes a note value —
+eighteen of them, from a 1/32 triplet to a dotted whole note, ordered by length so the
+knob still runs from the shortest repeat to the longest — and the spacing is taken from
+whatever tempo the host reports, block by block, so a tempo map moves the delay with it.
+Measured with one click in: 500.0 ms for a 1/4 at 120 BPM, 250.0 for a 1/8, 1000.0 for a
+dotted 1/4 at 90.
+
+Note values longer than the lines can hold are folded rather than clipped: a whole note
+at 60 BPM is four seconds and the lines hold two, so it comes back as two seconds — half
+the note, still on the grid, where a delay clipped to two seconds of a four-second note
+is simply late. Hosts that report no tempo, and the standalone, which has no transport at
+all, run at 120 BPM.
 
 **Bounce** is a dropped thing. Each repeat takes a fixed percentage off the gap before
 the next one, so the spacing runs down geometrically and one strike turns into
@@ -181,9 +195,9 @@ as it was saved.
 |---|---|
 | **Gravity** | Pre-Delay · Size · Space · Decay · Diffusion · Reverb |
 | **Spectrum** | Low Cut · High Cut · Damping · Width |
-| **Drift** | Shimmer · Pitch · Detune · Mod Rate · Mod Depth |
+| **Drift** | Shimmer · Pitch · Free · Detune · Mod Rate · Mod Depth |
 | **Collapse** | Collapse · Mass |
-| **Echo** | Engage · Time · Bounce · Feedback · Spread · Width · Shimmer · Pitch · Morph · Tone · Wobble · Abyss · Mix |
+| **Echo** | Engage · Sync · Time · Bounce · Feedback · Spread · Width · Shimmer · Pitch · Morph · Tone · Wobble · Abyss · Mix |
 | **Emission** | Freeze · Mono · Feedback · Mix · Output |
 | **Chrome** | Bypass, next to the preset name |
 
@@ -200,6 +214,14 @@ behaving like a reverb and starts behaving like a multi-tap delay — the Echo s
 for repeats you want to place, the Size control is for the ones you want to lose. Size
 high, **Diffusion** low and **Feedback** up is the one-note-and-walk-away setting; the
 *Light Echo* preset is exactly that.
+
+**Free** takes the shimmer's **Pitch** off the semitone grid. Off — which is how it
+ships, and how every preset is saved — the interval snaps to whole semitones, because
+that is what a shimmer is for. On, the knob runs continuously across the same two
+octaves, and +7.35 st is exactly what it says: measured with a 500 Hz tone in, the
+transposed voice sits at 1017.5 Hz rather than on the octave the snapped control would
+have rounded it to. It is the same parameter either way, so a value set off the grid
+survives being snapped back on — the panel and the engine round it identically.
 
 **Detune** does double duty: it spreads the two shimmer voices apart in cents, and it
 sets the depth of a very slow independent drift on each delay line. That second half is
