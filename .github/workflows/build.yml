@@ -135,9 +135,17 @@ jobs:
   # Every green push to main publishes its own release, tagged with the run number so
   # the tags sort and nothing is ever overwritten. Only reached if the build job went
   # green, so a failing check cannot publish.
+  #
+  # Run by hand counts too, and has to: a push whose run never happened - GitHub's
+  # Actions outage of 2026-08-06, say - leaves a commit on main that no amount of
+  # waiting will ever build, and the only way to release it was an empty commit whose
+  # entire purpose was to be pushed. The run number still makes the tag, so a manual
+  # run cannot collide with anything either.
   release:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -160,7 +168,7 @@ jobs:
           # start at column 0 in the generated script - as long as every line, the
           # terminator included, shares one indentation level here.
           cat > notes.md <<'EOF'
-          Automated build from `main`. Every check in `devtool check` passed and
+          Build from `main`. Every check in `devtool check` passed and
           pluginval cleared it at strictness 8 on Linux — but no DAW has opened this
           binary, so treat it as a build rather than a vetted release.
 
