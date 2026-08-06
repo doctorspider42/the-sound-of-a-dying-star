@@ -63,6 +63,10 @@ private:
     void layOutContent();
     void storeEditorSize();
 
+    /** Which of the two Time knobs the Echo row is showing: milliseconds, or the note
+        value the host's tempo is turning into milliseconds. */
+    void showSyncedTime (bool synced);
+
     DyingStarProcessor& processor;
 
     juce::Component content;
@@ -71,17 +75,23 @@ private:
     StarView star;
     TailMeter tailMeter;
     FreezePill freeze;
-    EngagePill delayEngage, monoSwitch, bypassSwitch;
+    EngagePill delayEngage, delaySync, pitchFree, monoSwitch, bypassSwitch;
     PresetBar presets;
 
     std::unique_ptr<CosmicKnob> kPreDelay, kSize, kSpace, kDecay, kDiffusion, kReverb;
     std::unique_ptr<CosmicKnob> kDamping, kLowCut, kHighCut, kWidth;
     std::unique_ptr<CosmicKnob> kShimmer, kPitch, kDetune, kModRate, kModDepth;
     std::unique_ptr<CosmicKnob> kCollapse, kMass;
-    std::unique_ptr<CosmicKnob> kDelayTime, kDelayBounce, kDelayFeed, kDelaySpread,
+    std::unique_ptr<CosmicKnob> kDelayTime, kDelayDiv, kDelayBounce, kDelayFeed, kDelaySpread,
                                 kDelayShimmer, kDelayPitch, kDelayMorph, kDelayTone,
                                 kDelayWobble, kDelayAbyss, kDelayMix, kDelayWidth;
     std::unique_ptr<CosmicKnob> kFeedback, kMix, kOutput;
+
+    // Both switches change what a knob means rather than what it does, so the panel has
+    // to follow them the moment they move - from the host as well as from the mouse.
+    // Last in the list, so they are the first thing let go of: neither callback has a
+    // knob to reach for after this point.
+    std::unique_ptr<juce::ParameterAttachment> syncWatcher, freePitchWatcher;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DyingStarEditor)
 };

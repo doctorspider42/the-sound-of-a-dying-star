@@ -154,6 +154,8 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
       processor (p),
       freeze (p.getState(), pid::freeze),
       delayEngage (p.getState(), pid::delayOn, "Engage", skin::colour::echo),
+      delaySync (p.getState(), pid::delaySync, "Sync", skin::colour::echo),
+      pitchFree (p.getState(), pid::shimFree, "Free", skin::colour::drift),
       monoSwitch (p.getState(), pid::mono, "Mono", skin::colour::spectrum),
       bypassSwitch (p.getState(), pid::bypass, "Bypass", skin::colour::collapse)
 {
@@ -164,6 +166,8 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     content.addAndMakeVisible (tailMeter);
     content.addAndMakeVisible (freeze);
     content.addAndMakeVisible (delayEngage);
+    content.addAndMakeVisible (delaySync);
+    content.addAndMakeVisible (pitchFree);
     content.addAndMakeVisible (monoSwitch);
     content.addAndMakeVisible (bypassSwitch);
     content.addAndMakeVisible (presets);
@@ -192,6 +196,7 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     kMass      = makeKnob (pid::mass,      "Mass",      skin::colour::collapse);
 
     kDelayTime    = makeKnob (pid::delayTime,    "Time",     echo);
+    kDelayDiv     = makeKnob (pid::delayDiv,     "Time",     echo);
     kDelayFeed    = makeKnob (pid::delayFeed,    "Feedback", echo);
     kDelaySpread  = makeKnob (pid::delaySpread,  "Spread",   echo);
     kDelayWidth   = makeKnob (pid::delayWidth,   "Width",    echo);
@@ -209,6 +214,24 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
     kFeedback  = makeKnob (pid::feedback,  "Feedback",  gravity);
     kMix       = makeKnob (pid::mix,       "Mix",       master);
     kOutput    = makeKnob (pid::output,    "Output",    master, true);
+
+    // ---- the two switches that change what a knob means ---------------------
+    // Watched through the parameters rather than through the pills, so a host moving
+    // either one - automation, a preset, an undo - moves the panel with it. The
+    // callbacks land on the message thread, which is where the components live.
+    if (auto* syncParam = processor.getState().getParameter (pid::delaySync))
+    {
+        syncWatcher = std::make_unique<juce::ParameterAttachment> (
+            *syncParam, [this] (float v) { showSyncedTime (v > 0.5f); });
+        syncWatcher->sendInitialUpdate();
+    }
+
+    if (auto* freeParam = processor.getState().getParameter (pid::shimFree))
+    {
+        freePitchWatcher = std::make_unique<juce::ParameterAttachment> (
+            *freeParam, [this] (float v) { kPitch->setStepped (v <= 0.5f); });
+        freePitchWatcher->sendInitialUpdate();
+    }
 
     // ---- live feeds ---------------------------------------------------------
     star.setStateProvider ([this]
@@ -263,6 +286,14 @@ DyingStarEditor::DyingStarEditor (DyingStarProcessor& p)
 }
 
 DyingStarEditor::~DyingStarEditor() = default;
+
+void DyingStarEditor::showSyncedTime (bool synced)
+{
+    // One cell, two knobs, one of them visible: the row reads the same either way, and
+    // whichever is showing is the one that is deciding the spacing.
+    kDelayTime->setVisible (! synced);
+    kDelayDiv->setVisible (synced);
+}
 
 void DyingStarEditor::paint (juce::Graphics& g)
 {
@@ -371,6 +402,12 @@ void DyingStarEditor::layOutContent()
         const auto rowH = body.getHeight() * 0.5f;
         auto top = body.removeFromTop (rowH);
         layOutRow (top,  { kShimmer.get(), kPitch.get(), kDetune.get() },  88.0f, 58.0f);
+
+        // In the space the bottom row's two knobs leave over, and in this panel rather
+        // than anywhere more general: it is Pitch's own step it changes, nothing else's.
+        auto freeArea = body.removeFromRight (88.0f);
+        pitchFree.setBounds (freeArea.withSizeKeepingCentre (80.0f, 38.0f).toNearestInt());
+
         layOutRow (body, { kModRate.get(), kModDepth.get() },              88.0f, 58.0f);
     }
 
@@ -391,8 +428,13 @@ void DyingStarEditor::layOutContent()
         body.removeFromTop (34.0f);
         body.removeFromBottom (10.0f);
 
+        // Engage over Sync, in the one column: what the section is, and then what its
+        // spacing is being measured in. Stacked because the row of twelve has no width
+        // to give away, and because the second one only matters once the first is on.
         auto engageArea = body.removeFromLeft (112.0f);
-        delayEngage.setBounds (engageArea.withSizeKeepingCentre (106.0f, 42.0f).toNearestInt());
+        auto engageTop = engageArea.removeFromTop (engageArea.getHeight() * 0.5f);
+        delayEngage.setBounds (engageTop.withSizeKeepingCentre (106.0f, 40.0f).toNearestInt());
+        delaySync.setBounds (engageArea.withSizeKeepingCentre (106.0f, 36.0f).toNearestInt());
         body.removeFromLeft (6.0f);
 
         // Spread and Width next to each other: one decides where a repeat lands, the
@@ -402,6 +444,11 @@ void DyingStarEditor::layOutContent()
                            kDelayPitch.get(), kDelayMorph.get(), kDelayTone.get(),
                            kDelayWobble.get(), kDelayAbyss.get(), kDelayMix.get() },
                    69.0f, 50.0f);
+
+        // The note value sits exactly where the milliseconds do. Only one of the two is
+        // ever visible, so the row never changes shape when Sync goes on.
+        kDelayDiv->setKnobDiameter (50.0f);
+        kDelayDiv->setBounds (kDelayTime->getBounds());
     }
 
     // ---- master row ---------------------------------------------------------

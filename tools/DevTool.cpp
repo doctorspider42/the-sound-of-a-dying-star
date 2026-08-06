@@ -180,6 +180,36 @@ juce::Array<float> repeatTimesMs (const juce::AudioBuffer<float>& buffer, float 
     return times;
 }
 
+/** Just enough of a transport for a synced delay to lock to. A host that reports a
+    tempo and nothing else is the normal case, not a degenerate one. */
+class FixedTempo final : public juce::AudioPlayHead
+{
+public:
+    explicit FixedTempo (double beatsPerMinute) : bpm (beatsPerMinute) {}
+
+    juce::Optional<PositionInfo> getPosition() const override
+    {
+        PositionInfo info;
+        info.setBpm (bpm);
+        info.setIsPlaying (true);
+        return info;
+    }
+
+private:
+    double bpm;
+};
+
+/** The mean spacing of the repeats in a buffer, in milliseconds. */
+float meanGapMs (const juce::AudioBuffer<float>& buffer, float minGapMs)
+{
+    const auto times = repeatTimesMs (buffer, minGapMs);
+
+    if (times.size() < 2)
+        return 0.0f;
+
+    return (times[times.size() - 1] - times[0]) / (float) (times.size() - 1);
+}
+
 /** Where a stretch of audio sits between the speakers: +1 hard left, -1 hard right. */
 float balanceOver (const juce::AudioBuffer<float>& buffer, int start, int numSamples)
 {
@@ -252,6 +282,13 @@ void neutral (Processor& proc)
     setParam (proc, delayWidth, 100.0f);
     setParam (proc, mono, 0.0f);
     setParam (proc, delayMix, 100.0f);
+
+    // Both of the switches that change what another control means are left in the
+    // position they ship in: the delay reads its own knob, the shimmer stays on the
+    // semitone grid. A check that wants either of them says so.
+    setParam (proc, delaySync, 0.0f);
+    setParam (proc, delayDiv, (float) dying::tempo::kDefaultDivision);
+    setParam (proc, shimFree, 0.0f);
 }
 
 int runCheck()
@@ -1164,51 +1201,73 @@ int runCheck()
         expect (none < 1.0e-6f, "at 0 % the reverb is gone and only the delay is left");
     }
 
-    // ---- 25. a session saved before Space existed reloads without it ----------
-    // The one control here whose default is not its inert position, so it is also the
-    // one that needs a migration - and a migration nobody tests is a migration that
-    // silently stops working the next time the state format is touched.
+    // ---- 25. a session saved before a control existed reloads without it ------
+    // Every control that arrived after the first release and cannot simply default to
+    // its inert position gets a migration, and a migration nobody tests is a migration
+    // that silently stops working the next time the state format is touched. What is
+    // being defended is one sentence: a session sounds like what it was saved as.
     {
+        struct Migration
+        {
+            const char* id;
+            float inert;      // what a state that never mentioned it has to come back as
+            float setTo;      // and what it is set to here, so a no-op restore cannot pass
+        };
+
+        const Migration migrated[] =
+        {
+            { space,     0.0f, 70.0f },
+            { delaySync, 0.0f, 1.0f  },
+            { shimFree,  0.0f, 1.0f  },
+        };
+
         neutral (proc);
-        setParam (proc, space, 70.0f);
         setParam (proc, decay, 66.0f);
+
+        for (const auto& m : migrated)
+            setParam (proc, m.id, m.setTo);
 
         juce::MemoryBlock current;
         proc.getStateInformation (current);
 
         auto xml = juce::AudioProcessor::getXmlFromBinary (current.getData(),
                                                            (int) current.getSize());
-        auto removed = false;
+        auto removed = 0;
 
         if (xml != nullptr)
         {
-            for (auto* child : xml->getChildWithTagNameIterator ("PARAM"))
-                if (child->getStringAttribute ("id") == space)
-                {
-                    xml->removeChildElement (child, true);
-                    removed = true;
-                    break;
-                }
+            for (const auto& m : migrated)
+                for (auto* child : xml->getChildWithTagNameIterator ("PARAM"))
+                    if (child->getStringAttribute ("id") == m.id)
+                    {
+                        xml->removeChildElement (child, true);
+                        ++removed;
+                        break;
+                    }
         }
 
-        expect (removed, "the state names its parameters one by one");
+        expect (removed == juce::numElementsInArray (migrated),
+                "the state names its parameters one by one");
 
-        if (removed)
+        if (removed == juce::numElementsInArray (migrated))
         {
             juce::MemoryBlock older;
             juce::AudioProcessor::copyXmlToBinary (*xml, older);
 
-            setParam (proc, space, 95.0f);   // so a restore that does nothing cannot pass
             proc.setStateInformation (older.getData(), (int) older.getSize());
 
-            const auto restored = proc.getState().getRawParameterValue (space)->load();
+            for (const auto& m : migrated)
+            {
+                const auto restored = proc.getState().getRawParameterValue (m.id)->load();
+
+                std::cout << "  " << m.id << " after loading a state that predates it: "
+                          << restored << std::endl;
+
+                expect (juce::exactlyEqual (restored, m.inert),
+                        juce::String (m.id) + " comes back inert when the state omits it");
+            }
+
             const auto decayKept = proc.getState().getRawParameterValue (decay)->load();
-
-            std::cout << "  space after loading a state that predates it: " << restored
-                      << " %" << std::endl;
-
-            expect (juce::exactlyEqual (restored, 0.0f),
-                    "a state without Space reloads with the early field off");
             expect (std::abs (decayKept - 66.0f) < 0.01f,
                     "and the rest of that state still arrives intact");
         }
@@ -1563,6 +1622,103 @@ int runCheck()
 
         expect (whileRunning > 0.01f && juce::exactlyEqual (whileBypassed, 0.0f),
                 "the meter reads zero while the plug-in is bypassed");
+    }
+
+    // ---- 34. the delay locks to the host's tempo ------------------------------
+    // The whole claim of a sync switch is that the repeats land on the grid, so it is
+    // measured the same way anyone would check it: one click in, and where the repeats
+    // actually arrive compared with what the note value asks for at that tempo.
+    {
+        auto gapFor = [&] (double bpm, int division, double seconds)
+        {
+            FixedTempo transport (bpm);
+            proc.setPlayHead (&transport);
+
+            neutral (proc);
+            setParam (proc, reverbLevel, 0.0f);   // the repeats, and nothing else
+            setParam (proc, delayOn, 1.0f);
+            setParam (proc, delaySync, 1.0f);
+            setParam (proc, delayDiv, (float) division);
+            setParam (proc, delayFeed, 92.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * seconds));
+            buffer.clear();
+            fillNoise (buffer, 0.7f, 0, (int) (kSampleRate * 0.001));
+            runThrough (proc, buffer);
+
+            proc.setPlayHead (nullptr);
+            return meanGapMs (buffer, 24.0f);
+        };
+
+        struct Expectation { double bpm; int division; float expectedMs; double seconds; };
+
+        // The last one is the fold: a whole note at 60 BPM is four seconds and the lines
+        // hold two, so it comes back as half of one - which is still on the grid.
+        const Expectation cases[] =
+        {
+            { 120.0, 10, 500.0f,  4.0 },   // 1/4
+            { 120.0,  7, 250.0f,  3.0 },   // 1/8
+            {  90.0, 12, 1000.0f, 6.0 },   // 1/4D at 90: 666.7 x 1.5
+            {  60.0, 16, 2000.0f, 8.0 },   // 1/1 at 60: four seconds, folded once
+        };
+
+        for (const auto& c : cases)
+        {
+            const auto measured = gapFor (c.bpm, c.division, c.seconds);
+            const auto label = juce::String (dying::tempo::kDivisions[(size_t) c.division].label);
+
+            std::cout << "  " << label << " at " << c.bpm << " BPM: repeats every "
+                      << juce::String (measured, 1) << " ms, asked for "
+                      << juce::String (c.expectedMs, 1) << std::endl;
+
+            expect (std::abs (measured - c.expectedMs) < juce::jmax (12.0f, c.expectedMs * 0.02f),
+                    "synced repeats land on " + label + " at "
+                        + juce::String (c.bpm, 0) + " BPM");
+        }
+    }
+
+    // ---- 35. the shimmer can be taken off the semitone grid --------------------
+    // Free Pitch is the whole of the difference between an interval and a frequency:
+    // with it off, 12.3 semitones is an octave, and with it on it is not.
+    {
+        auto energyAt = [&] (bool free, double freq)
+        {
+            neutral (proc);
+            setParam (proc, decay, 75.0f);
+            setParam (proc, shimmer, 90.0f);
+            setParam (proc, shimPitch, 12.3f);
+            setParam (proc, shimFree, free ? 1.0f : 0.0f);
+            proc.reset();
+
+            juce::AudioBuffer<float> buffer (2, (int) (kSampleRate * 3.0));
+            buffer.clear();
+            fillSine (buffer, 500.0, 0.5f, 0, (int) kSampleRate);
+            runThrough (proc, buffer);
+
+            return magnitudeAt (buffer, freq, (int) (kSampleRate * 1.5), (int) kSampleRate);
+        };
+
+        // 500 Hz up an octave, and 500 Hz up twelve and three tenths of a semitone -
+        // seventeen and a half hertz apart, which the correlation resolves easily over
+        // a second of tail.
+        constexpr double octave = 1000.0;
+        constexpr double asked  = 1017.5;
+
+        const auto snappedOnGrid = energyAt (false, octave);
+        const auto snappedOffGrid = energyAt (false, asked);
+        const auto freeOnGrid = energyAt (true, octave);
+        const auto freeOffGrid = energyAt (true, asked);
+
+        std::cout << "  shimmer at +12.3 st, snapped: " << snappedOnGrid << " at the octave, "
+                  << snappedOffGrid << " where it was asked for" << std::endl;
+        std::cout << "  shimmer at +12.3 st, free:    " << freeOnGrid << " at the octave, "
+                  << freeOffGrid << " where it was asked for" << std::endl;
+
+        expect (snappedOnGrid > snappedOffGrid * 2.0f,
+                "with Free Pitch off the shimmer snaps to the nearest semitone");
+        expect (freeOffGrid > freeOnGrid * 2.0f,
+                "and with it on the shimmer sits exactly where it was asked to");
     }
 
     // ---- CPU cost ------------------------------------------------------------

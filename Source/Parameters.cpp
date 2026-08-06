@@ -43,6 +43,18 @@ namespace
         return r;
     }
 
+    /** An interval, written the way a musician writes one. Whole semitones carry no
+        decimals at all, so a control that is on the grid says so at a glance and only a
+        control that has been taken off it spends the space saying where. */
+    juce::String semitoneText (float v, int)
+    {
+        const auto n = juce::roundToInt (v);
+        const auto onTheGrid = std::abs (v - (float) n) < 0.005f;
+        const auto text = onTheGrid ? juce::String (n) : juce::String (v, 2);
+
+        return (v > 0.0f ? "+" : "") + text;
+    }
+
     std::unique_ptr<juce::AudioParameterFloat> percent (const char* id, const juce::String& name,
                                                         float defaultValue, const char* suffix = "%")
     {
@@ -94,15 +106,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (percent (pid::diffusion, "Diffusion", 70.0f));
     layout.add (percent (pid::shimmer, "Shimmer", 30.0f));
 
+    // Continuous, with the semitone grid moved out into Free Pitch. The range and its
+    // law are exactly what they were, so every stored value - preset, session or host
+    // automation - still lands on the same interval it always did.
     layout.add (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { pid::shimPitch, 1 }, "Shimmer Pitch",
-        Range (-24.0f, 24.0f, 1.0f), 12.0f,
-        Attributes().withLabel ("st")
-                    .withStringFromValueFunction ([] (float v, int)
-                                                  {
-                                                      const auto n = juce::roundToInt (v);
-                                                      return (n > 0 ? "+" : "") + juce::String (n);
-                                                  })));
+        Range (-24.0f, 24.0f, 0.01f), 12.0f,
+        Attributes().withLabel ("st").withStringFromValueFunction (semitoneText)));
 
     layout.add (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { pid::detune, 1 }, "Detune",
@@ -208,6 +218,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (std::make_unique<juce::AudioParameterBool> (
         juce::ParameterID { pid::mono, 1 }, "Mono", false));
 
+    // ---- tempo sync -----------------------------------------------------------
+    // Off by default, so the Time knob keeps meaning milliseconds until somebody asks
+    // for bars, and a session saved before this existed reloads at the time it was set
+    // to rather than at whatever the project tempo happens to be today.
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { pid::delaySync, 1 }, "Delay Sync", false));
+
+    {
+        juce::StringArray divisions;
+
+        for (const auto& d : tempo::kDivisions)
+            divisions.add (d.label);
+
+        layout.add (std::make_unique<juce::AudioParameterChoice> (
+            juce::ParameterID { pid::delayDiv, 1 }, "Delay Division",
+            divisions, tempo::kDefaultDivision));
+    }
+
+    // Also off by default: the shimmer has always snapped to semitones, and a control
+    // that quietly stopped doing that would change every patch built on it.
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { pid::shimFree, 1 }, "Free Pitch", false));
+
     return layout;
 }
 
@@ -258,6 +291,10 @@ void ParamPointers::attach (juce::AudioProcessorValueTreeState& state)
 
     space        = get (pid::space);
     reverbLevel  = get (pid::reverbLevel);
+
+    delaySync    = get (pid::delaySync);
+    delayDiv     = get (pid::delayDiv);
+    shimFree     = get (pid::shimFree);
 }
 
 } // namespace dying

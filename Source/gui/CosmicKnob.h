@@ -44,6 +44,11 @@ public:
     /** Diameter of the dial itself; the component adds room for caption and readout. */
     void setKnobDiameter (float d) { diameter = d; resized(); }
 
+    /** Whole units under the mouse, or the parameter's own resolution. Only the step
+        changes - the range and its law stay the parameter's - so this is for a control
+        that is a grid of integers with a switch to leave it, and nothing else. */
+    void setStepped (bool wholeUnits);
+
     static constexpr float captionHeight = 14.0f;
     static constexpr float readoutHeight = 16.0f;
 
@@ -57,6 +62,7 @@ private:
     juce::String caption, suffix;
     juce::Colour accent;
     float diameter = 64.0f;
+    juce::NormalisableRange<float> paramRange;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CosmicKnob)
 };
